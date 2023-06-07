@@ -1,0 +1,5 @@
+A sample client for https://docs.spacetraders.io/
+
+Requires that your Access Token is set in SPACETRADER_API_TOKEN environment variable.
+
+Developed using PHP 8.2.6
