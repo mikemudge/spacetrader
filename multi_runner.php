@@ -51,8 +51,8 @@ function getNextAvailable(array $ships) {
     $best = -1;
     $bestShip = null;
     foreach ($ships as $ship) {
-        $cooldown = $ship->getCooldown()['remainingSeconds'];
-        if ($cooldown < $best || $best === -1) {
+        $cooldown = $ship->getCooldownSeconds();
+        if ($cooldown <= $best || $best === -1) {
             $best = $cooldown;
             $bestShip = $ship;
         }

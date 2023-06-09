@@ -10,6 +10,7 @@ class Ship {
     private $role;
     private $fuel;
     private $location;
+    private $lastActionTime;
 
     public function __construct($symbol) {
         $this->id = $symbol;
@@ -154,6 +155,7 @@ class Ship {
         try {
             $json_data = post_api($url);
 
+            $this->lastActionTime = time();
             $this->extractCooldown = $json_data['data']['cooldown'];
             $this->cargo = $json_data['data']['cargo'];
 
@@ -167,6 +169,14 @@ class Ship {
     }
     public function getCooldown() {
         return $this->extractCooldown;
+    }
+
+    public function getCooldownSeconds() {
+        if ($this->lastActionTime) {
+            return $this->extractCooldown['remainingSeconds'] - (time() - $this->lastActionTime);
+        } else {
+            return $this->extractCooldown['remainingSeconds'];
+        }
     }
 
     public function navigateTo($waypointSymbol) {

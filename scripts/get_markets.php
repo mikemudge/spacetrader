@@ -7,7 +7,7 @@ $hq = $agent->getHq();
 $info = $hq->getInfo();
 $waypoints = $hq->getSystemWaypoints();
 
-echo("\n" . json_encode($waypoints, JSON_PRETTY_PRINT) . "\n");
+//echo("\n" . json_encode($waypoints, JSON_PRETTY_PRINT) . "\n");
 
 /*
     "imports": [],
@@ -25,11 +25,18 @@ foreach ($waypoints as $waypointSymbol) {
         echo("Imports:" . json_encode(get_field($market['imports'], "symbol")) . "\n");
         echo("Exports:" . json_encode(get_field($market['exports'], "symbol")) . "\n");
         echo("Exchange:" . json_encode(get_field($market['exchange'], "symbol")) . "\n");
+        // Trade goods are only available if a ship is present.
+        // transactions are the same.
         if (isset($market['tradeGoods'])) {
-            echo("Trade Goods:" . json_encode(get_field($market['tradeGoods'], "symbol")) . "\n");
+            echo("Trade Goods:\n");
+            echo("item\t\t,sell\tbuy\n");
+            foreach ($market['tradeGoods'] as $tradeGood) {
+                $item = $tradeGood['symbol'];
+                $sell = $tradeGood['sellPrice'];
+                $buy = $tradeGood['purchasePrice'];
+                echo("$item\t$sell\t$buy\n");
+            }
         }
-//      echo("\n" . json_encode($market, JSON_PRETTY_PRINT) . "\n");
-//        break;
     }
 }
 //
