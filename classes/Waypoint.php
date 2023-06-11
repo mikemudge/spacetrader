@@ -1,39 +1,85 @@
 <?php
 
 class Waypoint {
-    private $id;
-    private $systemSymbol;
-    private $orbitals;
-    private $traits;
-    private $faction;
+    private static array $cachedWaypoints;
+    private string $id;
+    private string $systemSymbol;
+    private array $orbitals;
+    private ?array $traits = null;
+    private string $faction;
+    private string $type;
+    private int $x;
+    private int $y;
+    private Market $market;
 
-    public function __construct(string $waypoint) {
+    private function __construct(string $waypoint) {
         $this->id = $waypoint;
         // Remove the last part to get just the system id.
         $this->systemSymbol = substr($this->id, 0, strripos($this->id, "-"));
     }
 
-    public function getInfo() {
-        $url = "https://api.spacetraders.io/v2/systems/$this->systemSymbol/waypoints/$this->id";
+    public static function load(string $symbol) {
+        $waypoint = new Waypoint($symbol);
+        $url = "https://api.spacetraders.io/v2/systems/$waypoint->systemSymbol/waypoints/$waypoint->id";
         $json_data = get_api($url);
-
-        $this->orbitals = $json_data['data']['orbitals'];
-        $this->traits = $json_data['data']['traits'];
-        $this->faction = $json_data['data']['faction']['symbol'];
-
-        return $json_data['data'];
+        $waypoint->updateData($json_data['data']);
+        Waypoint::$cachedWaypoints[$waypoint->getId()] = $waypoint;
+        return $waypoint;
     }
 
-    public function getMarket() {
-        $url = "https://api.spacetraders.io/v2/systems/$this->systemSymbol/waypoints/$this->id/market";
-        $json_data = get_api($url);
-        return $json_data['data'];
+    public static function fromData($waypointData) {
+        $waypoint = new Waypoint($waypointData['symbol']);
+        $waypoint->updateData($waypointData);
+        return $waypoint;
     }
 
-    public function getSystemWaypoints() {
-        $url = "https://api.spacetraders.io/v2/systems/$this->systemSymbol/waypoints";
+    private function updateData($data) {
+        // "faction", "chart", "traits", "orbitals", "x", "y", "type"
+        $this->faction = $data['faction']['symbol'];
+        $this->orbitals = $data['orbitals'];
+        $this->traits = $data['traits'];
+        $this->faction = $data['faction']['symbol'];
+        $this->type = $data['type'];
+        $this->x = intval($data['x']);
+        $this->y = intval($data['y']);
+    }
+
+    private static function loadMany($data) {
+        $waypoints = [];
+        foreach($data as $wData) {
+            $waypoint = Waypoint::fromData($wData);
+            $waypoints[] = $waypoint;
+            Waypoint::$cachedWaypoints[$waypoint->getId()] = $waypoint;
+        }
+        return $waypoints;
+    }
+
+    public static function loadById($waypointSymbol): Waypoint {
+        if (!isset(Waypoint::$cachedWaypoints[$waypointSymbol])) {
+            echo("Loading uncached waypoint $waypointSymbol\n");
+            Waypoint::$cachedWaypoints[$waypointSymbol] = Waypoint::load($waypointSymbol);
+        }
+        return Waypoint::$cachedWaypoints[$waypointSymbol];
+    }
+
+    public function getMarket(): ?Market {
+        if (!$this->hasTrait('MARKETPLACE')) {
+            // No market at this waypoint.
+            return null;
+        }
+        if (!isset($this->market)) {
+            $url = "https://api.spacetraders.io/v2/systems/$this->systemSymbol/waypoints/$this->id/market";
+            $json_data = get_api($url);
+            $this->market = Market::fromData($this, $json_data['data']);
+        }
+        return $this->market;
+    }
+
+    /** @return Waypoint[] */
+    public static function loadSystem($systemSymbol) {
+        $url = "https://api.spacetraders.io/v2/systems/$systemSymbol/waypoints";
         $json_data = get_api($url);
-        return $json_data['data'];
+        return Waypoint::loadMany($json_data['data']);
     }
 
     public function getShipyard() {
@@ -46,9 +92,21 @@ class Waypoint {
         return $this->id;
     }
 
+    public function getType(): string {
+        return $this->type;
+    }
+
+    public function getDescription() {
+        return "$this->type at $this->x,$this->y ($this->id)";
+    }
+
+    public function getTraits() {
+        return $this->traits;
+    }
+
     public function hasTrait(string $traitSymbol) {
-        if (!$this->traits) {
-            $this->getInfo();
+        if ($this->traits === null) {
+            throw new RuntimeException("Traits are not loaded for $this->id\n");
         }
 
         foreach ($this->traits as $trait) {
@@ -57,5 +115,13 @@ class Waypoint {
             }
         }
         return false;
+    }
+
+    public function getSystemSymbol() {
+        return $this->systemSymbol;
+    }
+
+    public function getDistance(Waypoint $other) {
+        return sqrt(($this->x - $other->x) * ($this->x - $other->x) + ($this->y - $other->y) * ($this->y - $other->y));
     }
 }

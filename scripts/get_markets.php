@@ -2,50 +2,113 @@
 include_once "classes/autoload.php";
 include_once "functions.php";
 
-$agent = new Agent();
-$hq = $agent->getHq();
-$info = $hq->getInfo();
-$waypoints = $hq->getSystemWaypoints();
+$agent = Agent::load();
+$markets = $agent->getSystemMarkets();
 
-//echo("\n" . json_encode($waypoints, JSON_PRETTY_PRINT) . "\n");
+// For markets which have prices, we list the goods and their prices.
+foreach($markets as $market) {
+    $market->listGoods();
+}
+
+foreach($markets as $market) {
+    $market->describe();
+}
 
 /*
-    "imports": [],
-    "exports": [],
-    "exchange": [],
-    "transactions": [],
-    "tradeGoods": [],
- */
+Market at PLANET at 21,-15 (X1-HQ18-11700D)
+Imports:["ICE_WATER","FOOD","PLASTICS","FUEL","MEDICINE","FABRICS","LAB_INSTRUMENTS","CLOTHING","MACHINERY","DRUGS","EQUIPMENT","ELECTRONICS"]
+Exports:["BOTANICAL_SPECIMENS"]
+Market at MOON at 21,-15 (X1-HQ18-93722X)
+Imports:["IRON_ORE","ALUMINUM_ORE","COPPER_ORE"]
+Exports:["IRON","ALUMINUM","COPPER"]
+Exchange:["FUEL"]
+Market at MOON at 21,-15 (X1-HQ18-89363Z)
+Imports:["HYDROCARBON","LIQUID_NITROGEN","AMMONIA_ICE"]
+Exports:["EXPLOSIVES","PLASTICS","FERTILIZERS"]
+Exchange:["FUEL"]
+Market at MOON at 21,-15 (X1-HQ18-53964F)
+Imports:["SILVER_ORE","GOLD_ORE","PLATINUM_ORE"]
+Exports:["SILVER","GOLD","PLATINUM"]
+Exchange:["FUEL"]
+Market at ASTEROID_FIELD at 45,-15 (X1-HQ18-98695F)
+Exchange:["QUARTZ_SAND","IRON_ORE","COPPER_ORE","ALUMINUM_ORE","AMMONIA_ICE","DIAMONDS","FUEL","SILICON_CRYSTALS","ICE_WATER"]
+Market at ORBITAL_STATION at 61,-32 (X1-HQ18-60817D)
+Imports:["ENGINE_ION_DRIVE_I","MOUNT_SURVEYOR_I","REACTOR_SOLAR_I","MODULE_CARGO_HOLD_I","ENGINE_ION_DRIVE_II","MOUNT_MISSILE_LAUNCHER_I","MOUNT_MINING_LASER_I","MODULE_ORE_REFINERY_I","REACTOR_FISSION_I","MOUNT_TURRET_I","SHIP_PLATING","MODULE_CREW_QUARTERS_I","ENGINE_IMPULSE_DRIVE_I","MODULE_MINERAL_PROCESSOR_I","REACTOR_CHEMICAL_I","MOUNT_MINING_LASER_II","REACTOR_FUSION_I"]
+Exports:["FUEL"]
+Market at PLANET at -1,-85 (X1-HQ18-56588B)
+Exchange:["ICE_WATER","FOOD","MACHINERY","ELECTRONICS","PLASTICS","FUEL","MEDICINE","DRUGS","CLOTHING","EQUIPMENT","FABRICS"]
 
-foreach ($waypoints as $waypointSymbol) {
-    $waypoint = new Waypoint($waypointSymbol['symbol']);
-    if ($waypoint->hasTrait('MARKETPLACE')) {
-        echo($waypoint->getId() . "'s market\n");
-        $market = $waypoint->getMarket();
-        echo("Imports:" . json_encode(get_field($market['imports'], "symbol")) . "\n");
-        echo("Exports:" . json_encode(get_field($market['exports'], "symbol")) . "\n");
-        echo("Exchange:" . json_encode(get_field($market['exchange'], "symbol")) . "\n");
-        // Trade goods are only available if a ship is present.
-        // transactions are the same.
-        if (isset($market['tradeGoods'])) {
-            echo("Trade Goods:\n");
-            echo("item\t\t,sell\tbuy\n");
-            foreach ($market['tradeGoods'] as $tradeGood) {
-                $item = $tradeGood['symbol'];
-                $sell = $tradeGood['sellPrice'];
-                $buy = $tradeGood['purchasePrice'];
-                echo("$item\t$sell\t$buy\n");
-            }
-        }
-    }
-}
-//
-//echo(get_symbols($market['exchange']) . "\n");
-//
-//echo("tradeGoods\n");
-//$tradeGoods = $market['tradeGoods'];
-//echo("symbol\t\t\tsellPrice\ttradeVolume\n");
-//foreach($tradeGoods as $item) {
-//    $t1 = str_repeat("\t", 3 - intval(strlen($item['symbol']) / 8));
-//    echo($item['symbol'] . $t1 . $item['sellPrice'] . "\t\t" . $item['tradeVolume'] . "\n");
-//}
+Trade Goods at X1-HQ18-11700D:
+item			sell	buy
+ICE_WATER		16	34
+FOOD			257	526
+PLASTICS		271	562
+FUEL			128	264
+MEDICINE		607	1240
+FABRICS			85	174
+LAB_INSTRUMENTS		737	1498
+CLOTHING		314	636
+MACHINERY		583	1182
+BOTANICAL_SPECIMENS	330	638
+DRUGS			383	782
+EQUIPMENT		565	1152
+ELECTRONICS		538	1090
+
+Trade Goods at X1-HQ18-93722X:
+item			sell	buy
+IRON_ORE		45	94
+ALUMINUM_ORE		51	106
+IRON			80	152
+FUEL			115	127
+COPPER_ORE		55	114
+ALUMINUM		85	164
+COPPER			93	178
+
+Trade Goods at X1-HQ18-98695F:
+item			sell	buy
+QUARTZ_SAND		1	20
+IRON_ORE		1	45
+COPPER_ORE		1	56
+ALUMINUM_ORE		1	51
+AMMONIA_ICE		1	40
+DIAMONDS		3655	4124
+FUEL			115	127
+SILICON_CRYSTALS	1	36
+ICE_WATER		1	15
+
+Trade Goods at X1-HQ18-60817D:
+item			sell	buy
+ENGINE_ION_DRIVE_I	6848	14222
+MOUNT_SURVEYOR_I	5262	10802
+REACTOR_SOLAR_I		6206	12696
+MODULE_CARGO_HOLD_I	5878	12084
+ENGINE_ION_DRIVE_II	43835	90134
+MOUNT_MISSILE_LAUNCHER_I6564	13456
+MOUNT_MINING_LASER_I	4787	9842
+MODULE_ORE_REFINERY_I	27019	54632
+REACTOR_FISSION_I	20890	43324
+FUEL			62	118
+MOUNT_TURRET_I		4956	10124
+SHIP_PLATING		442	898
+MODULE_CREW_QUARTERS_I	13021	27010
+ENGINE_IMPULSE_DRIVE_I	5873	12064
+MODULE_MINERAL_PROCESSOR_I5334	11204
+REACTOR_CHEMICAL_I	6961	14432
+MOUNT_MINING_LASER_II	39225	80620
+REACTOR_FUSION_I	19447	39704
+
+Trade Goods at X1-HQ18-56588B:
+item			sell	buy
+ICE_WATER		14	16
+FOOD			229	253
+MACHINERY		510	615
+ELECTRONICS		474	964
+PLASTICS		250	277
+FUEL			114	126
+MEDICINE		527	609
+DRUGS			332	381
+CLOTHING		272	308
+EQUIPMENT		494	1058
+FABRICS			71	79
+
+ */

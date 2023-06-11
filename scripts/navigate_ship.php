@@ -10,12 +10,10 @@ if (!$waypoint) {
     exit();
 }
 
-$data = $ship->navigateTo($waypoint);
-echo("\n" . json_encode($data, JSON_PRETTY_PRINT) . "\n");
+$ship->navigateTo($waypoint);
 
-$status = $data['nav']['status'];
-$loc = $data['nav']['waypointSymbol'];
-$fuel = $data['fuel'];
-echo("\n" . json_encode($fuel, JSON_PRETTY_PRINT) . "\n");
-echo("Ship is $status\n");
-echo("Navigating to $loc\n");
+$status = $ship->getStatus();
+$loc = $ship->getLocation();
+$ship->getFuelDescription();
+$cooldown = $ship->getCooldown();
+echo("Ship is $status to $loc, will take $cooldown\n");
