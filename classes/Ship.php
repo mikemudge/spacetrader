@@ -1,39 +1,41 @@
 <?php
 
 class Ship {
+    const SURVEYOR = "SURVEYOR";
+    const COMMAND = "COMMAND";
+    const EXCAVATOR = "EXCAVATOR";
+
     private $id;
-    private $extractCooldown = [
-        'remainingSeconds' => 0
-    ];
     private $cargo;
     private $faction;
     private $role;
     private $fuel;
-    private $location;
+    private Waypoint $location;
+    private $lastActionTime;
+    private $status = null;
+    private $crew;
+    private $mounts;
+    private $modules;
+    private $engine;
+    private $reactor;
+    private $frame;
+    private $nextActionTime;
 
-    public function __construct($symbol) {
+    private function __construct($symbol) {
         $this->id = $symbol;
     }
 
-    /**
-     * @return Ship[]
-     */
-    public static function getShips() {
-        $url = "https://api.spacetraders.io/v2/my/ships";
-        $json_data = get_api($url);
-        $ships = [];
-        foreach ($json_data['data'] as $data) {
-            $ships[] = Ship::fromData($data);
-        }
-        return $ships;
+    public static function fromData($data): Ship {
+        $ship = new Ship($data['symbol']);
+        $ship->updateFromData($data);
+        return $ship;
     }
 
-    private static function fromData($data) {
-        $ship = new Ship($data['symbol']);
-        $ship->faction = $data['registration']['factionSymbol'];
-        $ship->role = $data['registration']['role'];
-        $ship->fuel = $data['fuel'];
-        return $ship;
+    public static function load(string $id): Ship {
+        $url = "https://api.spacetraders.io/v2/my/ships/$id";
+        $json_data = get_api($url);
+
+        return Ship::fromData($json_data['data']);
     }
 
     public function getId() {
@@ -44,144 +46,255 @@ class Ship {
         return "$this->id ($this->role)";
     }
 
+    public function getCurrentFuel() {
+        return $this->fuel['current'];
+    }
+
     public function getFuelDescription() {
         return $this->fuel['current'] . "/" . $this->fuel['capacity'];
     }
 
-    public function getCargoDescription() {
-        $this->getCargo();
-        return $this->cargo['units'] . "/" . $this->cargo['capacity'];
+    public function getCargo(): Cargo {
+        return $this->cargo;
+    }
+
+    public function getStatus() {
+        return $this->status;
+    }
+
+    public function getRole() {
+        return $this->role;
+    }
+
+    public function getSpeed() {
+        return $this->engine['speed'];
+    }
+
+    public function getEngine() {
+        return $this->engine;
+    }
+
+    public function getLocation(): string {
+        return $this->location->getId();
+    }
+
+    public function getCargoDescription(): string {
+        return $this->getCargo()->getDescription();
     }
 
     public function printCargo() {
         $cargo = $this->getCargo();
-
-        echo("Ship Cargo " . $cargo['units'] . "/" . $cargo['capacity'] . "\n");
-        foreach ($cargo['inventory'] as $item) {
+        echo("$this->id: Cargo " . $cargo->getDescription() . "\n");
+        foreach ($cargo->getInventory() as $item) {
             echo($item['units'] . "\t" . $item['symbol'] . "\n");
         }
     }
 
-    public function loadInfo() {
+    private function updateCargo($cargo) {
+        $this->cargo = new Cargo($cargo);
+    }
+
+    /** Refresh the ship data */
+    public function reload() {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id";
         $json_data = get_api($url);
-        return $json_data['data'];
+
+        $this->updateFromData($json_data['data']);
     }
 
-    public function getLocation() {
-        $data = $this->loadInfo();
-        $locSymbol = $data['nav']['waypointSymbol'];
-        $this->location = new Waypoint($locSymbol);
-        return $this->location;
-    }
+    public function updateFromData($data) {
+        $this->faction = $data['registration']['factionSymbol'];
+        $this->role = $data['registration']['role'];
+        $this->fuel = $data['fuel'];
+        $this->crew = $data['crew'];
+        $this->mounts = $data['mounts'];
+        $this->modules = $data['modules'];
+        $this->engine = $data['engine'];
+        $this->reactor = $data['reactor'];
+        $this->frame = $data['frame'];
+        $this->updateCargo($data['cargo']);
 
-    /**
-     * @return array with inventory, units and capacity.
-     * @throws JsonException
-     */
-    public function getCargo() {
-        if (!$this->cargo) {
-            $url = "https://api.spacetraders.io/v2/my/ships/$this->id/cargo";
-            $json_data = get_api($url);
-
-            $this->cargo = $json_data['data'];
+        // Use nav data to get location, status and time of arrival (could be future or past)
+        $this->status = $data['nav']['status'];
+        if ($this->getCooldown() <= 0) {
+            // Only update this if we don't already have a cooldown.
+            $this->nextActionTime = strtotime($data['nav']['route']['arrival']);
         }
-
-        return $this->cargo;
-    }
-
-    public function setCargo($cargo) {
-        $this->cargo = $cargo;
-    }
-
-    public function hasCargoSpace() {
-        $cargo = $this->getCargo();
-        return $cargo['units'] < $cargo['capacity'];
+        $this->location = Waypoint::loadById($data['nav']['waypointSymbol']);
     }
 
     // dock or orbit etc.
     private function performAction(string $action) {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/$action";
         $json_data = post_api($url);
-        $status = $json_data['data']['nav']['status'];
-        echo("Ship is $status\n");
-        return $json_data['data'];
+        $this->status = $json_data['data']['nav']['status'];
     }
 
     public function dock() {
-        return $this->performAction('dock');
+        if ($this->status != "DOCKED") {
+            $this->performAction('dock');
+        }
     }
 
     public function orbit() {
-        return $this->performAction('orbit');
+        if ($this->status != "IN_ORBIT") {
+            $this->performAction('orbit');
+        }
     }
 
     public function survey() {
         // TODO learn about survey results?
-        return $this->performAction('survey');
+        $this->performAction('survey');
     }
 
-    public function fuel() {
-        // TODO 1 unit of fuel is 100 units in the tank.
-        // figure out how to optimize?
+    public function fuel(): ?Transaction {
+        $current = $this->fuel['current'];
+        $capacity = $this->fuel['capacity'];
+        // TODO should consider the price, and the next destination if possible.
+        if ($current >= 100 && $capacity - $current < 100) {
+            // Don't need to refuel if we have more than 100 and can't topup by a full 100.
+            // Some ships only have 100 capacity and need to topup.
+            echo("Fuel $current/$capacity, not refuelling\n");
+            return null;
+        }
+        echo("Fuel $current/$capacity, will refuel\n");
+        $this->dock();
+
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/refuel";
         $json_data = post_api($url);
 
         $data = $json_data['data'];
-
-        echo("Purchased " . $data['transaction']['units'] . " fuel at $" . $data['transaction']['pricePerUnit'] . "\n");
-        echo("Total $" . $data['transaction']['totalPrice'] . "\n");
-        return $data;
+        $transaction = new Transaction($data['transaction']);
+        $transaction->describe();
+        return $transaction;
     }
+
+    public function transfer(Ship $commandShip, $good, $amount) {
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/transfer";
+        $json_data = post_api($url, [
+            "tradeSymbol" => $good,
+            "units" => $amount,
+            "shipSymbol" => $commandShip->getId()
+        ]);
+        $this->updateCargo($json_data['data']['cargo']);
+        // commandShip will also have a new cargo.
+        $commandShip->reload();
+    }
+
+    public function purchase(array $item) {
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/purchase";
+        $json_data = post_api($url, $item);
+
+        // Reset cargo after something is purchased.
+        $this->cargo = new Cargo($json_data['data']['cargo']);
+
+        return new Transaction($json_data['data']['transaction']);
+    }
+
     public function sell($item) {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/sell";
         $json_data = post_api($url, $item);
 
         // Reset cargo after something is sold.
-        $this->cargo = null;
-        return $json_data['data']['transaction'];
+        $this->cargo = new Cargo($json_data['data']['cargo']);
+        Agent::get()->updateFromData($json_data['data']['agent']);
+
+        return new Transaction($json_data['data']['transaction']);
     }
 
-    public function extractOres() {
-        if ($this->extractCooldown && $this->extractCooldown['remainingSeconds'] > 0) {
-            $t = $this->extractCooldown['remainingSeconds'];
-            echo("Waiting $t to extract again\n");
-            sleep($t);
-            $this->extractCooldown = null;
-        }
+    public function waitForCooldown() {
+        $cooldown = $this->getCooldown();
 
+        if ($cooldown > 0) {
+            echo("$this->id: Waiting $cooldown to cooldown\n");
+            sleep($cooldown);
+        }
+    }
+
+    /**
+     * @throws CooldownException
+     * @throws JsonException
+     */
+    public function extractOres() {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/extract";
+
         try {
             $json_data = post_api($url);
 
-            $this->extractCooldown = $json_data['data']['cooldown'];
-            $this->cargo = $json_data['data']['cargo'];
+            $this->setCooldown($json_data['data']['cooldown']['remainingSeconds']);
+            $this->cargo = new Cargo($json_data['data']['cargo']);
 
             // Show what the current extraction is.
             return $json_data['data']['extraction']['yield'];
         } catch (CooldownException $e) {
-            $this->extractCooldown = $e->getCooldown();
-            echo("Extraction requires cooldown\n");
-            return $this->extractOres();
+            // Update this ships next action time.
+            // TODO next extract and next action are separate?
+            $this->setCooldown($e->getCooldown()['remainingSeconds']);
+            throw $e;
         }
     }
-    public function getCooldown() {
-        return $this->extractCooldown;
+
+    public function setCooldown(int $c) {
+        $this->nextActionTime = time() + $c;
     }
 
-    public function navigateTo($waypointSymbol) {
+    public function getCooldown(): int {
+        $c = $this->nextActionTime - time();
+        return max($c, 0);
+    }
+
+    public function navigateTo($destinationSymbol) {
+        if ($destinationSymbol == $this->location->getId()) {
+//            echo("Already at $destinationSymbol, not navigating\n");
+            return;
+        }
+        $distance = $this->location->getDistance(Waypoint::loadById($destinationSymbol));
+        $expectedFuel = $this->getFuelForDistance($distance);
+        $expectedTime = $this->getTimeForDistance($distance);
+        if ($this->fuel['current'] < $expectedFuel) {
+            // We probably don't want to default to using this kind of fuelling.
+            // More context allows for better fuel planning.
+            echo("$this->id: Navigate requires fuel " . $this->getFuelDescription() . "\n");
+            $this->dock();
+            $this->fuel();
+        } else {
+            // TODO We can get to our destination, but should we fuel now or later?
+            $topup = $this->fuel['capacity'] - $this->fuel['current'];
+            $fuelPrice = 0;
+            $market = $this->location->getMarket();
+            if ($market) {
+                $fuelPrice = $market->getBuyPrice("FUEL");
+                // fuel now
+            }
+
+            echo("$this->id: Navigate could fuel at $$fuelPrice ($topup) " . $this->getFuelDescription() . "\n");
+        }
+
+        // Need to be in orbit to navigate.
+        $this->orbit();
+
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/navigate";
-        $json_data = post_api($url, ['waypointSymbol' => $waypointSymbol]);
-        return $json_data['data'];
+        $json_data = post_api($url, ['waypointSymbol' => $destinationSymbol]);
+
+        $data = $json_data['data'];
+        $this->fuel = $data['fuel'];
+        $this->status = $data['nav']['status'];
+        $this->nextActionTime = strtotime($data['nav']['route']['arrival']);
+        $this->location = Waypoint::loadById($data['nav']['waypointSymbol']);
+
+        $time = $this->getCooldown();
+        $consumedFuel = $this->fuel['consumed']['amount'];
+        $from = $data['nav']['route']['departure']['symbol'];
+        // Server time vs local time may affect the cooldown?
+//        echo("now    " . date("c") . "\n");
+//        echo("depart " . $data['nav']['route']['departureTime'] . "\n");
+//        echo("arrive " . $data['nav']['route']['arrival'] . "\n");
+        echo("$this->id: Travelling " . number_format($distance, 2) . " $from to $destinationSymbol using $consumedFuel fuel, est $expectedTime, will take $time seconds\n");
     }
 
     public function completeNavigateTo($destinationSymbol) {
-        $data = $this->navigateTo($destinationSymbol);
-        $route = $data['nav']['route'];
-        $time = strtotime($route['arrival']) - strtotime($route['departureTime']);
-
-        echo("Travelling for $time seconds\n");
-        sleep($time);
+        $this->navigateTo($destinationSymbol);
+        $this->waitForCooldown();
     }
 
     /*
@@ -195,39 +308,186 @@ class Ship {
    }'
      */
     public function sellAll() {
+        // TODO get location/market and confirm what can be sold?
         $cargo = $this->getCargo();
-        if (count($cargo['inventory']) > 0) {
+        $inventory = $cargo->getInventory();
+        if (count($inventory) > 0) {
             // Need to dock to sell items.
             $this->dock();
         }
-        foreach($cargo['inventory'] as $item) {
-//        if ($item['symbol'] === $contractOreSymbol) {
-//            // Don't sell the contract item
-//            if ($item['units'] >= $cargo['capacity'] - 6) {
-//                echo("Ready to drop off " . $item['units'] . " of " . $contractOreSymbol . " for contract\n");
-//                $ship->completeNavigateTo($destinationSymbol);
-//
-//                $ship->dock();
-//                $contract->deliver([
-//                    'shipSymbol' => $ship->getId(),
-//                    'tradeSymbol' => $contractOreSymbol,
-//                    'units' => $item['units']
-//                ]);
-//                // TODO Reset cargo after something is delivered.
-//                $ship->setCargo(null);
-//
-//                // return to the asteroid to continue mining.
-//                $ship->completeNavigateTo($asteroidSymbol);
-//                $ship->dock();
-//                // TODO only buy fuel if we need it???
-//                $ship->fuel();
-//            } else {
-//                echo("Not selling " . $item['units'] . " of " . $item['symbol'] . "\n");
-//            }
-//            continue;
-//        }
+        foreach($inventory as $item) {
             $transaction = $this->sell($item);
-            echo("$this->id sold " . $transaction['units'] . " of " . $transaction['tradeSymbol'] . " for " . $transaction['totalPrice'] . "\n");
+            $transaction->describe();
         }
+    }
+
+    public function sellAllExcept($good) {
+        // TODO get location/market and confirm what can be sold?
+        $cargo = $this->getCargo();
+        $inventory = $cargo->getInventory();
+        if (count($inventory) > 0) {
+            // Need to dock to sell items.
+            $this->dock();
+        }
+        $totalPrice = 0;
+        foreach($inventory as $item) {
+            if ($item['symbol'] === $good) {
+                continue;
+            }
+            $transaction = $this->sell($item);
+            $transaction->describe();
+            $totalPrice += $transaction->getTotal();
+        }
+        return $totalPrice;
+    }
+
+    // Just deliver how ever much we have to this contract.
+    public function deliverContract(Contract $contract) {
+        $good = $contract->getDeliver()[0]['tradeSymbol'];
+        $howMuch = $this->getCargo()->getAmountOf($good);
+        if ($howMuch == 0) {
+            echo("$this->id: Has $howMuch $good for contract\n");
+            // Done
+            return;
+        }
+
+        $dropOff = $contract->getDeliver()[0]['destinationSymbol'];
+        if ($this->getLocation() != $dropOff) {
+            echo("$this->id: Need to travel to deliver $howMuch $good for contract\n");
+            // We need to make the trip to the contract location for drop off.
+            $this->navigateTo($dropOff);
+            // Return now as there will be a cooldown.
+            return;
+        }
+
+        // We are at the dropOff location.
+        $this->dock();
+        // Check remaining to see if we can drop it all off, and if we should fufill it.
+        $howMuch = min($howMuch, $contract->getRemaining());
+        $data = $contract->deliver([
+            'shipSymbol' => $this->getId(),
+            'tradeSymbol' => $good,
+            'units' => $howMuch
+        ]);
+        echo("$this->id: Delivered $howMuch $good for contract\n");
+        echo($contract->getDescription() . "\n");
+        $this->cargo = new Cargo($data['cargo']);
+    }
+
+    public function clearInventory($routes) {
+        if (empty($this->getCargo()->getInventory())) {
+            // No inventory is the expected state.
+            return;
+        }
+
+        // TODO calculate the value of selling vs jettisoning.
+        echo("$this->id: Selling full inventory before starting trade routes");
+
+        // Iterate through each cargo item, and find how to get rid of it.
+        // TODO we might be able to optimize this by considering multiple items sold at the same location?
+        foreach ($this->getCargo()->getInventory() as $item) {
+            $good = $item['symbol'];
+            echo("Choosing a route for $good because its already in cargo\n");
+            // TODO consider onetime route cost vs repeated cost?
+            // E.g initial cost of travel is high for a onetime route.
+            $bestRoute = $routes[$good][0];
+            // TODO estimate value isn't perfect as we don't have a full load.
+            $bestVal = $this->estimateValue($bestRoute);
+            foreach ($routes[$good] as $route) {
+                $val = $this->estimateValue($route);
+                if ($val > $bestVal) {
+                    $bestVal = $val;
+                    $bestRoute = $route;
+                }
+            }
+            // Will go to the location and sell the item.
+            $bestRoute->run($this);
+        }
+    }
+
+    /*
+     * An estimation on how long this ship will take to travel a distance.
+     * Based on observations of distance, speed and times for ships to travel.
+     */
+    public function getTimeForDistance(float $dis) {
+        return round(15 * (1 + $dis / $this->getSpeed()));
+    }
+
+    private function getFuelForDistance(float $distance) {
+        // Always costs 1, even for 0 distance flights.
+        return max(1, round($distance));
+    }
+
+    /* The value of this run in credits per minute */
+    public function estimateValue(TradeRoute $route) {
+        // TODO this is the worse estimate for fuel price. Assumes that the ship will topup at both ends.
+        $distance = $route->getDistance();
+        $fuelTopup = ceil(intval($distance) / 100);
+        $fuelCost = $route->getBuyer()->getBuyPrice("FUEL") * $fuelTopup
+            + $route->getSeller()->getBuyPrice("FUEL") * $fuelTopup;
+
+        $goodsProfit = $this->getCargo()->getCapacity() * $route->getValue();
+        $totalTime = $this->getTimeForDistance($distance) * 2;
+        return ($goodsProfit - $fuelCost); // * 60 / $totalTime;
+    }
+
+    public function extractAndSell($hoardGood) {
+        // Only extract if we have some space (Selling should keep space available).
+        if ($this->getCargo()->getSpace() > 0) {
+            $this->orbit();
+            $yield = $this->extractOres();
+            echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . "\n");
+        }
+        if ($this->getCargo()->getSpace() <= 5) {
+            echo("$this->id: Selling cargo " . $this->getCargoDescription() . " to make space\n");
+            $totalPrice = $this->sellAllExcept($hoardGood);
+            if ($totalPrice > 0) {
+                echo("$this->id: Sold cargo "  . $this->getCargoDescription() . " for $$totalPrice\n");
+            } else {
+                // Nothing sold???
+                $this->printCargo();
+            }
+        }
+    }
+
+    public function matchStatus(Ship $ship): bool {
+        if ($ship->getStatus() == "DOCKED") {
+            $this->dock();
+            return true;
+        } else if ($ship->getStatus() == "IN_ORBIT") {
+            $this->orbit();
+            return true;
+        }
+        // IN_TRANSIT isn't practical to match
+        return false;
+    }
+
+    public function transferAll($hoardGood, Ship $ship) {
+        if ($this->getLocation() == $ship->getLocation()) {
+            $amount = $this->getCargo()->getAmountOf($hoardGood);
+            // If the ship has less space, just transfer as much as we can.
+            $amount = min($amount, $ship->getCargo()->getSpace());
+            if ($amount > 0) {
+                if ($this->matchStatus($ship)) {
+                    $this->transfer($ship, $hoardGood, $amount);
+                    echo("$this->id ($this->role) transfered $amount $hoardGood to $ship->id ($ship->role)\n");
+                }
+            }
+        }
+    }
+
+    public function negotiateContract(Agent $agent) {
+
+        echo("Navigate to the faction HQ to negotiate another?");
+        $factionHq = Waypoint::load("X1-KS52-07960X");
+
+        $this->navigateTo($factionHq->getId());
+
+        $this->dock();
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/negotiate/contract";
+        $json_data = post_api($url);
+
+        $contract = Contract::create($json_data['data']['contract']);
+        $agent->addContract($contract);
     }
 }
