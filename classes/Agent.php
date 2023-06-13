@@ -272,7 +272,7 @@ class Agent {
         }
     }
 
-    private function acceptContract(Contract $contract) {
+    public function acceptContract(Contract $contract) {
         if (!$contract->getAccepted()) {
             // TODO this assumes that a ship is on location
             $data = $contract->accept();
@@ -299,7 +299,7 @@ class Agent {
         return $contract;
     }
 
-    private function negotiateContract(Ship $ship): Contract {
+    public function negotiateContract(Ship $ship): Contract {
         // Navigate to HQ for negotiation.
         $ship->completeNavigateTo($this->headQuarters);
         // Once there negotiate.

@@ -397,7 +397,9 @@ class Ship {
             // The best time to do this is while we are already on location.
             echo("Fulfilling contract now\n");
             $contract->fulfill();
+            return true;
         }
+        return false;
     }
 
     public function clearInventory($routes) {

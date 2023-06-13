@@ -97,7 +97,12 @@ while(true) {
                         $ship->navigateTo($goal->getLocation());
                         break;
                     }
-                    $ship->deliverContract($goal);
+                    if ($ship->deliverContract($goal)) {
+                        // This assumes that deliverContract already took us to the HQ.
+                        echo("No current contract, getting a new one\n");
+                        $contract = $agent->negotiateContract($ship);
+                        $agent->acceptContract($contract);
+                    };
                 } else {
                     // TODO see if there is some trade route we could use to benefit this trip?
                     // We can ignore fuel as we need to spend that already, just get the highest value cargo to bring?

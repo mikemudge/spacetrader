@@ -85,6 +85,8 @@ MUDGE-1: Travelling 58.01 X1-KS52-25044Z to X1-KS52-51225B using 58 fuel, est 44
 MUDGE-6: Travelling 40.25 X1-KS52-23717D to X1-KS52-51225B using 40 fuel, est 317, will take 315 seconds
 MUDGE-1: Travelling 40.25 X1-KS52-23717D to X1-KS52-51225B using 40 fuel, est 35, will take 36 seconds
 15 * (1 + 40.25 / 30) = 35.125
+MUDGE-2: Travelling 83.67 X1-KS52-07960X to X1-KS52-23717D using 0 fuel, est 643, will take 645 seconds
+15 * (1 + 83.67 / 30) = 642.525
 
 I suspect the formula is
 time = 15 * (1 + distance / speed)
