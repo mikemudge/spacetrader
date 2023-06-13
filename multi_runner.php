@@ -6,7 +6,10 @@ $agent = Agent::load();
 // Preload all waypoints.
 $agent->getSystemWaypoints();
 $ships = $agent->getShips();
+$reloadShipsTime = time() + 100;
 $asteroid = $agent->getAsteroids()[0];
+
+$noCommand = has_arg("--no_command");
 
 // Need the command ship so that we can transfer to it.
 // TODO could be the delivery ship, in case we replace it later with a fast/cargo ship.
@@ -18,9 +21,12 @@ foreach($ships as $ship) {
     }
 }
 
+// TODO need a better way to reserve a ship for upgrades like additional mounts.
+$excludedShips = ["MUDGE-B"];
+// TODO should keep track of ship income?
 $numShips = count($ships);
 echo("Automating " . count($ships) . " ships\n");
-$hoardGood = null;
+$goal = null;
 
 // TODO we want actions/strategies.
 // Assign ships to different controllers.
@@ -30,16 +36,27 @@ $hoardGood = null;
 // Command ship can deliver goods for contracts.
 // Surveyor can keep markets up to date, and buy new ships.
 while(true) {
-    $goal = $agent->getFirstContract();
-    if ($goal) {
-        if ($hoardGood != $goal->getDeliver()[0]['tradeSymbol']) {
-            // Change in hoard good.
-            $hoardGood = $goal->getDeliver()[0]['tradeSymbol'];
-            echo("Now hoarding " . $hoardGood . "\n");
+    $c = $agent->getUnfulfilledContract();
+    if ($goal !== $c) {
+        $goal = $c;
+        if ($goal) {
+            echo("Contract changed\n");
+            $goal->describe();
+        } else {
+            echo("Contract ended\n");
         }
     }
+    if ($goal) {
+        $contractGood = $goal->getGood();
+    }
 
-    $ship = getNextAvailable($ships);
+    $now = time();
+    if ($now > $reloadShipsTime) {
+        $ships = $agent->reloadShips();
+        $reloadShipsTime = $now + 100;
+    }
+
+    $ship = getNextAvailable($ships, $excludedShips);
     $shipId = $ship->getId();
     $role = $ship->getRole();
     $cooldown = $ship->getCooldown();
@@ -59,21 +76,29 @@ while(true) {
                 // Buy ships?
                 // Negotiate/Accept new contracts?
                 // Update markets which have stale data?
-                // Do nothing with the surveyor, sleep for 100 seconds everytime and reload ships this often.
+                // Do nothing with the surveyor, sleep for 100 seconds to avoid it showing up.
                 $ship->setCooldown(100);
                 //echo("SURVEYOR cooldown was reset to " .$ship->getCooldown() . "\n");
                 // Reload does a full replacement of ships meaning the SURVEYOR has no cooldown.
 //                $agent->buyMiningShip();
-                $ships = $agent->reloadShips();
                 break;
             case Ship::COMMAND:
+                if ($noCommand) {
+                    break;
+                }
                 $howMuch = 0;
-                if ($hoardGood) {
-                    $howMuch = $ship->getCargo()->getAmountOf($hoardGood);
+                if ($contractGood) {
+                    $howMuch = $ship->getCargo()->getAmountOf($contractGood);
                 }
 
                 if ($howMuch > $ship->getCargo()->getCapacity() - 10) {
                     // Deliver good.
+                    $howMuch = min($goal->getRemaining(), $ship->getCargo()->getAmountOf($contractGood));
+                    if ($ship->getLocation() != $goal->getLocation()) {
+                        echo($ship->getId() . ": Need to travel to deliver $howMuch $contractGood for contract\n");
+                        $ship->navigateTo($goal->getLocation());
+                        break;
+                    }
                     $ship->deliverContract($goal);
                 } else {
                     // TODO see if there is some trade route we could use to benefit this trip?
@@ -83,7 +108,7 @@ while(true) {
                         // If navigate did something, wait until arrival.
                         break;
                     }
-                    $ship->extractAndSell($hoardGood);
+                    $ship->extractAndSell($contractGood);
                 }
                 break;
             case Ship::EXCAVATOR:
@@ -95,11 +120,12 @@ while(true) {
                 }
 
                 // Transfer important goods to commandShip if possible.
-                if ($hoardGood) {
-                    $ship->transferAll($hoardGood, $commandShip);
+                // TODO should we do this at sell time only to reduce API calls?
+                if ($contractGood) {
+                    $ship->transferAll($contractGood, $commandShip);
                 }
 
-                $ship->extractAndSell($hoardGood);
+                $ship->extractAndSell($contractGood);
                 break;
             default:
                 throw new RuntimeException("Unknown ship role $role");
@@ -112,10 +138,14 @@ while(true) {
 }
 
 /** @var Ship[] $ships */
-function getNextAvailable(array $ships) {
+function getNextAvailable(array $ships, array $excludedShips) {
     $best = -1;
     $bestShip = null;
     foreach ($ships as $ship) {
+        if (in_array($ship->getId(), $excludedShips)) {
+            // Don't use this ship.
+            continue;
+        }
         $cooldown = $ship->getCooldown();
         if ($cooldown <= $best || $best === -1) {
             $best = $cooldown;

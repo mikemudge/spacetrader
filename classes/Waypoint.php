@@ -1,6 +1,16 @@
 <?php
 
 class Waypoint {
+    public const ASTEROID_FIELD = "ASTEROID_FIELD";
+    public const DEBRIS_FIELD = "DEBRIS_FIELD";
+    public const GAS_GIANT = "GAS_GIANT";
+    public const GRAVITY_WELL = "GRAVITY_WELL";
+    public const JUMP_GATE = "JUMP_GATE";
+    public const MOON = "MOON";
+    public const NEBULA = "NEBULA";
+    public const ORBITAL_STATION = "ORBITAL_STATION";
+    public const PLANET = "PLANET";
+
     private static array $cachedWaypoints;
     private string $id;
     private string $systemSymbol;

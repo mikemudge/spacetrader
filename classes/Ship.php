@@ -1,6 +1,20 @@
 <?php
 
 class Ship {
+    //FABRICATOR
+    //HARVESTER
+    //HAULER
+    //INTERCEPTOR
+    //EXCAVATOR
+    //TRANSPORT
+    //REPAIR
+    //SURVEYOR
+    //COMMAND
+    //CARRIER
+    //PATROL
+    //SATELLITE
+    //EXPLORER
+    //REFINERY
     const SURVEYOR = "SURVEYOR";
     const COMMAND = "COMMAND";
     const EXCAVATOR = "EXCAVATOR";
@@ -202,6 +216,16 @@ class Ship {
         return new Transaction($json_data['data']['transaction']);
     }
 
+    public function installMount(string $mountSymbol) {
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/mounts/install";
+        $json_data = post_api($url, ['symbol' => $mountSymbol]);
+
+        $this->cargo = new Cargo($json_data['data']['cargo']);
+        $this->mounts = $json_data['data']['mounts'];
+
+        return $json_data['data'];
+    }
+
     public function waitForCooldown() {
         $cooldown = $this->getCooldown();
 
@@ -249,25 +273,27 @@ class Ship {
             return;
         }
         $distance = $this->location->getDistance(Waypoint::loadById($destinationSymbol));
-        $expectedFuel = $this->getFuelForDistance($distance);
-        $expectedTime = $this->getTimeForDistance($distance);
-        if ($this->fuel['current'] < $expectedFuel) {
-            // We probably don't want to default to using this kind of fuelling.
-            // More context allows for better fuel planning.
-            echo("$this->id: Navigate requires fuel " . $this->getFuelDescription() . "\n");
-            $this->dock();
-            $this->fuel();
-        } else {
-            // TODO We can get to our destination, but should we fuel now or later?
-            $topup = $this->fuel['capacity'] - $this->fuel['current'];
-            $fuelPrice = 0;
-            $market = $this->location->getMarket();
-            if ($market) {
-                $fuelPrice = $market->getBuyPrice("FUEL");
-                // fuel now
-            }
+        if ($this->fuel['capacity'] > 0) {
+            $expectedFuel = $this->getFuelForDistance($distance);
+            $expectedTime = $this->getTimeForDistance($distance);
+            if ($this->fuel['current'] < $expectedFuel) {
+                // We probably don't want to default to using this kind of fuelling.
+                // More context allows for better fuel planning.
+                echo("$this->id: Navigate requires fuel " . $this->getFuelDescription() . "\n");
+                $this->dock();
+                $this->fuel();
+            } else {
+                // TODO We can get to our destination, but should we fuel now or later?
+                $topup = $this->fuel['capacity'] - $this->fuel['current'];
+                $fuelPrice = 0;
+                $market = $this->location->getMarket();
+                if ($market) {
+                    $fuelPrice = $market->getBuyPrice("FUEL");
+                    // fuel now
+                }
 
-            echo("$this->id: Navigate could fuel at $$fuelPrice ($topup) " . $this->getFuelDescription() . "\n");
+                echo("$this->id: Navigate could fuel at $$fuelPrice ($topup) " . $this->getFuelDescription() . "\n");
+            }
         }
 
         // Need to be in orbit to navigate.
@@ -321,7 +347,10 @@ class Ship {
         }
     }
 
-    public function sellAllExcept($good) {
+    public function sellAllExcept($goods) {
+        if (!is_array($goods)) {
+            $goods = [$goods];
+        }
         // TODO get location/market and confirm what can be sold?
         $cargo = $this->getCargo();
         $inventory = $cargo->getInventory();
@@ -331,7 +360,7 @@ class Ship {
         }
         $totalPrice = 0;
         foreach($inventory as $item) {
-            if ($item['symbol'] === $good) {
+            if (in_array($item['symbol'], $goods)) {
                 continue;
             }
             $transaction = $this->sell($item);
@@ -343,23 +372,8 @@ class Ship {
 
     // Just deliver how ever much we have to this contract.
     public function deliverContract(Contract $contract) {
-        $good = $contract->getDeliver()[0]['tradeSymbol'];
-        $howMuch = $this->getCargo()->getAmountOf($good);
-        if ($howMuch == 0) {
-            echo("$this->id: Has $howMuch $good for contract\n");
-            // Done
-            return;
-        }
-
-        $dropOff = $contract->getDeliver()[0]['destinationSymbol'];
-        if ($this->getLocation() != $dropOff) {
-            echo("$this->id: Need to travel to deliver $howMuch $good for contract\n");
-            // We need to make the trip to the contract location for drop off.
-            $this->navigateTo($dropOff);
-            // Return now as there will be a cooldown.
-            return;
-        }
-
+        $good = $contract->getGood();
+        $howMuch = min($contract->getRemaining(), $this->getCargo()->getAmountOf($good));
         // We are at the dropOff location.
         $this->dock();
         // Check remaining to see if we can drop it all off, and if we should fufill it.
@@ -372,6 +386,12 @@ class Ship {
         echo("$this->id: Delivered $howMuch $good for contract\n");
         echo($contract->getDescription() . "\n");
         $this->cargo = new Cargo($data['cargo']);
+
+        if ($contract->getRemaining() == 0) {
+            // The best time to do this is while we are already on location.
+            echo("Fulfilling contract now\n");
+            $contract->fulfill();
+        }
     }
 
     public function clearInventory($routes) {
@@ -436,7 +456,8 @@ class Ship {
         if ($this->getCargo()->getSpace() > 0) {
             $this->orbit();
             $yield = $this->extractOres();
-            echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . "\n");
+            $cooldown = $this->getCooldown();
+            echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . " takes $cooldown\n");
         }
         if ($this->getCargo()->getSpace() <= 5) {
             echo("$this->id: Selling cargo " . $this->getCargoDescription() . " to make space\n");
@@ -470,24 +491,23 @@ class Ship {
             if ($amount > 0) {
                 if ($this->matchStatus($ship)) {
                     $this->transfer($ship, $hoardGood, $amount);
-                    echo("$this->id ($this->role) transfered $amount $hoardGood to $ship->id ($ship->role)\n");
+                    echo("$this->id transfered $amount $hoardGood to $ship->id\n");
                 }
             }
         }
     }
 
-    public function negotiateContract(Agent $agent) {
-
-        echo("Navigate to the faction HQ to negotiate another?");
-        $factionHq = Waypoint::load("X1-KS52-07960X");
-
-        $this->navigateTo($factionHq->getId());
-
+    public function negotiateContract() {
         $this->dock();
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/negotiate/contract";
         $json_data = post_api($url);
+        return $json_data['data'];
+    }
 
-        $contract = Contract::create($json_data['data']['contract']);
-        $agent->addContract($contract);
+    public function hasArrivedAt(Waypoint $waypoint) {
+        if ($this->getLocation() == $waypoint->getId()) {
+            return $this->status != "IN_TRANSIT";
+        }
+        return false;
     }
 }

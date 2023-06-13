@@ -20,6 +20,14 @@ class Cargo {
         return $this->inventory;
     }
 
+    public function getUnits() {
+        return $this->units;
+    }
+
+    public function getCapacity() {
+        return $this->capacity;
+    }
+
     public function getDescription() {
         return $this->units . "/" . $this->capacity;
     }
@@ -32,9 +40,5 @@ class Cargo {
         }
         // We don't have any of that good.
         return 0;
-    }
-
-    public function getCapacity() {
-        return $this->capacity;
     }
 }

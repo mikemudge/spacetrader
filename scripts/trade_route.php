@@ -15,6 +15,8 @@ pcntl_signal(SIGTERM, [$agent, "sig_handler"]);
 pcntl_signal(SIGINT, [$agent, "sig_handler"]);
 
 
+// TODO this doesn't find all routes???
+// event markets which import a good can have a price for sell.
 $routes = TradeRoute::findAll($markets);
 
 $ship = get_ship();

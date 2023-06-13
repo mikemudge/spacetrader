@@ -50,6 +50,18 @@ class Contract {
         return $this->fulfilled;
     }
 
+    public function deliverGoods(Ship $ship) {
+        $amount = $ship->getCargo()->getAmountOf($this->getGood());
+        if ($amount == 0) {
+            echo($ship->getId() . ": has 0 " . $this->getGood() . ", can't deliver anything\n");
+            exit;
+        }
+
+        // Go to the location and deliver.
+        $ship->completeNavigateTo($this->getLocation());
+        $ship->deliverContract($this);
+    }
+
     public function deliver(array $data) {
         $url = "https://api.spacetraders.io/v2/my/contracts/$this->id/deliver";
         $json_data = post_api($url, $data);
@@ -63,18 +75,19 @@ class Contract {
         $json_data = post_api($url);
         $this->updateFromData($json_data['data']['contract']);
         Agent::get()->updateFromData($json_data['data']['agent']);
+
+        $acceptFee = $this->getPayment()['onFulfilled'];
+        echo("Got $acceptFee for accepting a contract\n");
     }
 
     public function accept() {
         $url = "https://api.spacetraders.io/v2/my/contracts/$this->id/accept";
         $json_data = post_api($url);
         $this->updateFromData($json_data['data']['contract']);
-        Agent::get()->updateFromData($json_data['data']['agent']);
-        return $json_data['data'];
-    }
 
-    public function getRemaining() {
-        return $this->deliver[0]['unitsRequired'] - $this->deliver[0]['unitsFulfilled'];
+        $acceptFee = $this->getPayment()['onAccepted'];
+        echo("Got $acceptFee for accepting a contract\n");
+        return $json_data['data'];
     }
 
     public function getDescription() {
@@ -86,5 +99,27 @@ class Contract {
             $result .= "  $unitsFulfilled/$unitsRequired of $tradeSymbol";
         }
         return $result;
+    }
+
+    public function describe() {
+        $payment = $this->getPayment();
+        $price = number_format($payment['onFulfilled']);
+        echo("Current contract: $this->id ($$price)\n");
+        echo($this->getDescription() . "\n");
+    }
+
+    public function getRemaining() {
+        // TODO assumes a single deliver.
+        return $this->deliver[0]['unitsRequired'] - $this->deliver[0]['unitsFulfilled'];
+    }
+
+    public function getGood() {
+        // TODO assumes a single deliver.
+        return $this->deliver[0]['tradeSymbol'];
+    }
+
+    public function getLocation() {
+        // TODO assumes a single deliver.
+        return $this->deliver[0]['destinationSymbol'];
     }
 }

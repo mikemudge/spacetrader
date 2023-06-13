@@ -2,11 +2,14 @@
 include_once "classes/autoload.php";
 include_once "functions.php";
 
+$cargo = has_arg("--cargo");
 $agent = Agent::load();
 
 echo($agent->getDescription() ."\n");
 
-$agent->listContracts();
+$contract = $agent->getUnfulfilledContract();
+echo("Have " . count($agent->getContracts()) . " contracts\n");
+$contract->describe();
 
 $waypoints = $agent->getSystemWaypoints();
 $waypointMap = [];
@@ -20,4 +23,7 @@ foreach ($ships as $ship) {
     $waypoint = Waypoint::loadById($ship->getLocation());
     echo ($ship->getShipDescription() . "\t fuel " . $ship->getFuelDescription() . "\t cargo " . $ship->getCargoDescription()
         . "\t located at " . $waypoint->getDescription() . "\n");
+    if ($cargo) {
+        $ship->printCargo();
+    }
 }

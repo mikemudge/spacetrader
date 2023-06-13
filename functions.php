@@ -39,12 +39,19 @@ function get_symbols($data) {
     return json_encode($s);
 }
 
+function tabs_for(string $str, int $max): string {
+    return str_repeat("\t", $max - intval(strlen($str) / 8));
+}
+
 function display_json($json_data) {
     echo("\n" . json_encode($json_data, JSON_PRETTY_PRINT) . "\n");
 }
 
 function get_api($url) {
     $ch = curl_init($url);
+    if (has_arg("--debug_api")) {
+        echo("get_api $url\n");
+    }
 
     $token = getenv("SPACETRADER_API_TOKEN");
     $headers = [
@@ -63,10 +70,13 @@ function get_api($url) {
         $code = $json_data['error']['code'] ?? 0;
         if ($code == 429) {
             // Rate limited.
-            display_json($json_data);
-            $wait = $json_data['error']['retryAfter'];
-            echo("Hit rate limit, sleeping for $wait seconds before retrying");
-            usleep($wait * 1000000);
+            // The burst rate of 10 has a 10 second reset.
+            // Lets sleep for a bit to avoid hitting the rate limit again immediately.
+            $retryAfter = $json_data['error']['data']['retryAfter'];
+            // TODO retryAfter is often something like 0.17 which is too short if we want to make multiple requests.
+            $wait = 5;
+            echo("Hit rate limit, sleeping for $wait seconds before retrying\n");
+            sleep($wait);
             return get_api($url);
         }
         echo("\nUrl:\n" . $url);
@@ -83,6 +93,9 @@ function get_api($url) {
 
 function post_api($url, $data = null) {
     $ch = curl_init($url);
+    if (has_arg("--debug_api")) {
+        echo("post_api $url\n");
+    }
 
     $token = getenv("SPACETRADER_API_TOKEN");
     $headers = [
@@ -112,13 +125,17 @@ function post_api($url, $data = null) {
         }
         if ($code == 4214) {
             $time = $json_data['error']['data']['secondsToArrival'];
-            echo("Will arrive in $time seconds");
-            throw new RuntimeException($message);
+            echo("Will arrive in $time seconds\n");
+            throw new CooldownException($message, $time);
         }
         if ($code == 429) {
             // Rate limited.
-            $wait = $json_data['data']['error']['retryAfter'];
-            echo("Hit rate limit, sleeping for $wait seconds before retrying");
+            // The burst rate of 10 has a 10 second reset.
+            // Lets sleep for a bit to avoid hitting the rate limit again immediately.
+            $retryAfter = $json_data['error']['data']['retryAfter'];
+            // TODO retryAfter is often something like 0.17 which is too short if we want to make multiple requests.
+            $wait = 5;
+            echo("Hit rate limit, sleeping for $wait seconds before retrying\n");
             sleep($wait);
             return post_api($url, $data);
         }

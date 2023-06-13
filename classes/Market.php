@@ -47,13 +47,13 @@ class Market {
     public function listGoods() {
         if (!empty($this->tradeGoods)) {
             echo("Trade Goods at $this->waypointId:\n");
-            echo("item\t\t\tsell\tbuy\n");
+            echo("item\t\t\t\tsell\t\tbuy\n");
             foreach ($this->tradeGoods as $tradeGood) {
                 $item = $tradeGood->getId();
-                $sell = $tradeGood->getSellPrice();
-                $buy = $tradeGood->getBuyPrice();
-                $t1 = str_repeat("\t", 3 - intval(strlen($item) / 8));
-                echo("$item$t1$sell\t$buy\n");
+                $sell = number_format($tradeGood->getSellPrice());
+                $buy = number_format($tradeGood->getBuyPrice());
+                $t1 = tabs_for($item, 4);
+                echo("$item$t1$$sell\t\t$$buy\n");
             }
         }
     }

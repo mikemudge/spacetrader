@@ -5,6 +5,13 @@ include_once "functions.php";
 $agent = Agent::load();
 $markets = $agent->getSystemMarkets();
 
+$describe = get_arg("--describe");
+if ($describe) {
+    $market = Waypoint::loadById($describe)->getMarket();
+    $market->listGoods();
+    $market->describe();
+    exit;
+}
 // For markets which have prices, we list the goods and their prices.
 foreach($markets as $market) {
     $market->listGoods();
