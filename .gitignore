@@ -1,2 +1,5 @@
 spacetrade.iml
 .idea
+
+# contains save state between runs.
+data
