@@ -46,6 +46,7 @@ while(true) {
             echo("Contract ended\n");
         }
     }
+    $contractGood = null;
     if ($goal) {
         $contractGood = $goal->getGood();
     }
@@ -88,7 +89,7 @@ while(true) {
                     $howMuch = $ship->getCargo()->getAmountOf($contractGood);
                 }
 
-                if ($howMuch > $ship->getCargo()->getCapacity() - 10) {
+                if ($goal && $howMuch > $ship->getCargo()->getCapacity() - 10) {
                     // Deliver good.
                     $howMuch = min($goal->getRemaining(), $ship->getCargo()->getAmountOf($contractGood));
                     if ($ship->getLocation() != $goal->getLocation()) {

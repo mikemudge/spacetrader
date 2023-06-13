@@ -314,6 +314,7 @@ class Ship {
         $this->location = Waypoint::loadById($data['nav']['waypointSymbol']);
 
         $time = $this->getCooldown();
+        $expectedTime = $this->getTimeForDistance($distance);
         $consumedFuel = $this->fuel['consumed']['amount'];
         $from = $data['nav']['route']['departure']['symbol'];
         // Server time vs local time may affect the cooldown?
