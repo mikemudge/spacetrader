@@ -22,7 +22,7 @@ foreach($ships as $ship) {
 }
 
 // TODO need a better way to reserve a ship for upgrades like additional mounts.
-$excludedShips = ["MUDGE-B"];
+$excludedShips = [];
 // TODO should keep track of ship income?
 $numShips = count($ships);
 echo("Automating " . count($ships) . " ships\n");
@@ -72,14 +72,11 @@ while(true) {
     try {
         switch($role) {
             case Ship::SURVEYOR:
-                // TODO we could/should use this ship to do something more useful.
-                // Buy ships?
-                // Negotiate/Accept new contracts?
-                // Update markets which have stale data?
                 // Do nothing with the surveyor, sleep for 100 seconds to avoid it showing up.
                 $ship->setCooldown(100);
-                //echo("SURVEYOR cooldown was reset to " .$ship->getCooldown() . "\n");
-                // Reload does a full replacement of ships meaning the SURVEYOR has no cooldown.
+
+                // TODO we could/should use this ship to do something more useful.
+                // Buy ships? Negotiate/Accept new contracts? Update markets which have stale data?
 //                $agent->buyMiningShip();
                 break;
             case Ship::COMMAND:
@@ -110,6 +107,28 @@ while(true) {
                     }
                     $ship->extractAndSell($contractGood);
                 }
+                break;
+            case Ship::REFINERY:
+                // TODO handle what this ship does?
+                // If we have enough resource refine, otherwise collect from miners around it?
+                // Can't mine.
+                /*
+                    {
+                        "error": {
+                            "message": "Ship MUDGE-C does not have a required mining laser mount.",
+                            "code": 4243,
+                            "data": {
+                                "shipSymbol": "MUDGE-C",
+                                "miningLasers": [
+                                    "MOUNT_MINING_LASER_I",
+                                    "MOUNT_MINING_LASER_II",
+                                    "MOUNT_MINING_LASER_III"
+                                ]
+                            }
+                        }
+                    }
+                 */
+                $ship->setCooldown(1000);
                 break;
             case Ship::EXCAVATOR:
                 // Should do nothing most of the time, as the ship should already be there.

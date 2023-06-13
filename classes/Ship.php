@@ -18,6 +18,7 @@ class Ship {
     const SURVEYOR = "SURVEYOR";
     const COMMAND = "COMMAND";
     const EXCAVATOR = "EXCAVATOR";
+    const REFINERY = "REFINERY";
 
     private $id;
     private $cargo;
@@ -157,8 +158,12 @@ class Ship {
     }
 
     public function survey() {
-        // TODO learn about survey results?
-        $this->performAction('survey');
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/survey";
+        $json_data = post_api($url);
+
+        $this->setCooldown($json_data['data']['cooldown']['remainingSeconds']);
+
+        return $json_data['data'];
     }
 
     public function fuel(): ?Transaction {
@@ -239,11 +244,11 @@ class Ship {
      * @throws CooldownException
      * @throws JsonException
      */
-    public function extractOres() {
+    public function extractOres($data = null) {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/extract";
 
         try {
-            $json_data = post_api($url);
+            $json_data = post_api($url, $data);
 
             $this->setCooldown($json_data['data']['cooldown']['remainingSeconds']);
             $this->cargo = new Cargo($json_data['data']['cargo']);
