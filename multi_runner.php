@@ -6,10 +6,14 @@ $agent = Agent::load();
 // Preload all waypoints.
 $agent->getSystemWaypoints();
 $ships = $agent->getShips();
-$reloadShipsTime = time() + 100;
+$reloadShipsTime = time();
 $asteroid = $agent->getAsteroids()[0];
 
 $noCommand = has_arg("--no_command");
+$survey = new SurveyService($agent);
+$marketService = $agent->getMarketService();
+$contractService = $agent->getContractService();
+$financeService = new FinanceService($agent);
 
 // Need the command ship so that we can transfer to it.
 // TODO could be the delivery ship, in case we replace it later with a fast/cargo ship.
@@ -26,7 +30,6 @@ $excludedShips = [];
 // TODO should keep track of ship income?
 $numShips = count($ships);
 echo("Automating " . count($ships) . " ships\n");
-$goal = null;
 
 // TODO we want actions/strategies.
 // Assign ships to different controllers.
@@ -36,23 +39,11 @@ $goal = null;
 // Command ship can deliver goods for contracts.
 // Surveyor can keep markets up to date, and buy new ships.
 while(true) {
-    $c = $agent->getUnfulfilledContract();
-    if ($goal !== $c) {
-        $goal = $c;
-        if ($goal) {
-            echo("Contract changed\n");
-            $goal->describe();
-        } else {
-            echo("Contract ended\n");
-        }
-    }
-    $contractGood = null;
-    if ($goal) {
-        $contractGood = $goal->getGood();
-    }
-
     $now = time();
     if ($now > $reloadShipsTime) {
+        // Periodically every ~100 we run some checks.
+        echo(date('H:i:s') . ": Reloading " . $agent->getDescription() . "\n");
+        // This makes it possible for ships to be purchased outside of this script.
         $ships = $agent->reloadShips();
         $reloadShipsTime = $now + 100;
     }
@@ -71,49 +62,56 @@ while(true) {
     }
 
     try {
+        $contractGood = $contractService->getCurrentGood();
+        if ($contractGood && $survey->perform($ship, $contractGood)) {
+            // You can't survey and mine in the same turn.
+            continue;
+        };
+
         switch($role) {
             case Ship::SURVEYOR:
-                // Do nothing with the surveyor, sleep for 100 seconds to avoid it showing up.
-                $ship->setCooldown(100);
+            case Ship::SATELLITE:
+                // TODO contracts should normally be handled by the ship who delivers them?
+                if ($contractService->ensureContract($ship)) {
+                    break;
+                }
 
-                // TODO we could/should use this ship to do something more useful.
-                // Buy ships? Negotiate/Accept new contracts? Update markets which have stale data?
-//                $agent->buyMiningShip();
+                // Purchase new ship?
+                if ($financeService->purchaseShip($ship)) {
+                    break;
+                }
+
+                // When there is nothing else for this ship to do it can circle markets and update their rates.
+                if ($marketService->updateRates($ship)) {
+                    break;
+                }
+
+                // TODO return to somewhere its likely to be needed next?
+                // The ORBITAL_STATION for contracts, or the SHIPYARD for ship purchases?
+
+                // Do nothing for 100 seconds so we aren't continually checking up on this ship.
+                echo($ship->getId() . ": Not needed, cooling down for 100\n");
+                $ship->setCooldown(100);
                 break;
             case Ship::COMMAND:
                 if ($noCommand) {
                     break;
                 }
-                $howMuch = 0;
-                if ($contractGood) {
-                    $howMuch = $ship->getCargo()->getAmountOf($contractGood);
+                if ($contractService->deliverContract($ship)) {
+                    break;
                 }
 
-                if ($goal && $howMuch > $ship->getCargo()->getCapacity() - 10) {
-                    // Deliver good.
-                    $howMuch = min($goal->getRemaining(), $ship->getCargo()->getAmountOf($contractGood));
-                    if ($ship->getLocation() != $goal->getLocation()) {
-                        echo($ship->getId() . ": Need to travel to deliver $howMuch $contractGood for contract\n");
-                        $ship->navigateTo($goal->getLocation());
-                        break;
-                    }
-                    if ($ship->deliverContract($goal)) {
-                        // This assumes that deliverContract already took us to the HQ.
-                        echo("No current contract, getting a new one\n");
-                        $contract = $agent->negotiateContract($ship);
-                        $agent->acceptContract($contract);
-                    };
-                } else {
-                    // TODO see if there is some trade route we could use to benefit this trip?
-                    // We can ignore fuel as we need to spend that already, just get the highest value cargo to bring?
-                    $ship->navigateTo($asteroid->getId());
-                    if ($ship->getCooldown() > 0) {
-                        // If navigate did something, wait until arrival.
-                        break;
-                    }
-                    $ship->extractAndSell($contractGood);
+                // TODO see if there is some trade route we could use to benefit this trip?
+                // We can ignore fuel as we need to spend that already, just get the highest value cargo to bring?
+                $ship->navigateTo($asteroid->getId());
+                if ($ship->getCooldown() > 0) {
+                    // If navigate did something, wait until arrival.
+                    break;
                 }
+                $contractGood = $contractService->getCurrentGood();
+                $ship->extractAndSell($contractGood, $survey);
                 break;
+            case Ship::HAULER:
             case Ship::REFINERY:
                 // TODO handle what this ship does?
                 // If we have enough resource refine, otherwise collect from miners around it?
@@ -146,11 +144,12 @@ while(true) {
 
                 // Transfer important goods to commandShip if possible.
                 // TODO should we do this at sell time only to reduce API calls?
+                $contractGood = $contractService->getCurrentGood();
                 if ($contractGood) {
                     $ship->transferAll($contractGood, $commandShip);
                 }
 
-                $ship->extractAndSell($contractGood);
+                $ship->extractAndSell($contractGood, $survey);
                 break;
             default:
                 throw new RuntimeException("Unknown ship role $role");

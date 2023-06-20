@@ -3,6 +3,7 @@ include_once "classes/autoload.php";
 include_once "functions.php";
 
 $agent = Agent::load();
+$agent->describe();
 $shipyards = $agent->getSystemShipyards();
 $shipyard = $shipyards[0]->getShipyard();
 // TODO Should cache these numbers like we do with market tradeGoods?
@@ -11,6 +12,14 @@ $ship = null;
 $shipSymbol = get_arg("--ship");
 if ($shipSymbol) {
     $ship = Ship::load($shipSymbol);
+} else {
+    foreach($agent->getShips() as $s) {
+        if ($s->getLocation() == $shipyards[0]->getId()) {
+            echo("Found a ship " . $s->getId() . " at the shipyard, will use that\n");
+            $ship = $s;
+            break;
+        }
+    }
 }
 
 if ($ship && $ship->hasArrivedAt($shipyards[0])) {
@@ -47,6 +56,14 @@ if ($ship && $ship->hasArrivedAt($shipyards[0])) {
                 $crew += $m['capacity'];
             } else if (substr($m['symbol'],0, 17) == "MODULE_CARGO_HOLD") {
                 $cargo += $m['capacity'];
+            } else if (substr($m['symbol'], 0, 24) == "MODULE_MINERAL_PROCESSOR") {
+                $extraModules[] = "Mine";
+            } else if (substr($m['symbol'], 0, 17) == "MODULE_WARP_DRIVE") {
+                $extraModules[] = "Warp";
+            } else if (substr($m['symbol'], 0, 17) == "MODULE_JUMP_DRIVE") {
+                $extraModules[] = "Jump";
+            } else if (substr($m['symbol'], 0, 19) == "MODULE_ORE_REFINERY") {
+                $extraModules[] = "Refine";
             } else {
                 $extraModules[] = $m['symbol'];
             }
@@ -61,6 +78,14 @@ if ($ship && $ship->hasArrivedAt($shipyards[0])) {
         foreach($ship['mounts'] as $m) {
             if (substr($m['symbol'],0, 18)  == 'MOUNT_MINING_LASER') {
                 $mineStrength += $m['strength'];
+            } else if (substr($m['symbol'], 0, 14) == "MOUNT_SURVEYOR") {
+                $extraModules[] = "Survey";
+            } else if (substr($m['symbol'], 0, 18) == "MOUNT_SENSOR_ARRAY") {
+                $extraModules[] = "Sensor";
+            } else if (substr($m['symbol'], 0, 12) == "MOUNT_TURRET") {
+                $extraModules[] = "Gun";
+            } else if (substr($m['symbol'], 0, 22) == "MOUNT_MISSILE_LAUNCHER") {
+                $extraModules[] = "Rockets";
             } else {
                 $extraModules[] = $m['symbol'];
             }

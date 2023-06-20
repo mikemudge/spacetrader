@@ -4,6 +4,9 @@ class Agent {
     const MARKET_FILE = "data/markets.json";
     private static Agent $agent;
 
+    private MarketService $marketService;
+    private ContractService $contractService;
+
     /** @var string "MUDGE" for me */
     private $id;
     private $ships;
@@ -14,14 +17,16 @@ class Agent {
     private $credits;
     private $contracts;
 
-    private function __construct() {
+    private function __construct($data) {
+        $this->updateFromData($data);
+        $this->marketService = new MarketService($this);
+        $this->contractService = new ContractService($this);
         $this->ships = [];
     }
 
     public static function load() {
-        $agent = new Agent();
         $json_data = get_api("https://api.spacetraders.io/v2/my/agent");
-        $agent->updateFromData($json_data['data']);
+        $agent = new Agent($json_data['data']);
         Agent::$agent = $agent;
         return $agent;
     }
@@ -30,12 +35,18 @@ class Agent {
         return Agent::$agent;
     }
 
+    public function saveMarketsOnExit() {
+        // Register the saveMarket signal handler only after we have loaded market data.
+        // Otherwise we could replace the saved data with incomplete data.
+        pcntl_async_signals(true);
+        pcntl_signal(SIGTERM, [$this, "sig_handler"]);
+        pcntl_signal(SIGINT, [$this, "sig_handler"]);
+    }
+
     public function sig_handler($signo) {
         echo("Handling signal $signo\n");
 
-        echo("Saving market tradeGoods\n");
-        $this->saveMarkets();
-        echo("Saved\n");
+        $this->getMarketService()->saveMarkets();
         exit;
     }
 
@@ -48,11 +59,8 @@ class Agent {
         return $data;
     }
 
-    public function newContract($ship) {
-        // TODO must be at hq to get new contract, must have fufilled all existing contracts.
-        $url = "https://api.spacetraders.io/v2/my/ships/" . $ship->getId() . "/negotiate/contract";
-        $json_data = post_api($url);
-        return Contract::create($json_data['data']);
+    public function addContract(Contract $contract) {
+        $this->contracts[] = $contract;
     }
 
     /** @return Contract[] */
@@ -99,7 +107,6 @@ class Agent {
         $json_data = get_api($url);
         $meta = $json_data['meta'];
         // has "total": 11, "page": 1, "limit": 20
-        display_json($meta);
         foreach ($json_data['data'] as $data) {
             $this->ships[] = Ship::fromData($data);
         }
@@ -115,9 +122,7 @@ class Agent {
         $this->updateFromData($json_data['data']['agent']);
         $ship = Ship::fromData($json_data['data']['ship']);
         $this->ships[] = $ship;
-        // This is not a goods Transaction, it has different fields, so just use the price.
-        $price = number_format($json_data['data']['transaction']['price']);
-        echo("Purchased " . $ship->getId() . " (" . $ship->getRole() . ") for $$price\n");
+        return $json_data['data'];
     }
 
     public function getDescription() {
@@ -135,18 +140,7 @@ class Agent {
     }
 
     public function getSystemMarkets() {
-        $waypoints = $this->getSystemWaypoints();
-        /** @var Market[] $markets */
-        $markets = [];
-        foreach ($waypoints as $waypoint) {
-            $market = $waypoint->getMarket();
-            if ($market) {
-                $markets[] = $market;
-            }
-        }
-        // This will fill in gaps for markets based on saved information.
-        $this->loadMarkets();
-        return $markets;
+        return $this->getMarketService()->getSystemMarkets();
     }
 
     public function getCredits(): int {
@@ -155,6 +149,10 @@ class Agent {
 
     public function getSystemSymbol(): string {
         return $this->systemSymbol;
+    }
+
+    public function getHeadQuarters() {
+        return $this->headQuarters;
     }
 
     public function getSystemShipyards() {
@@ -205,43 +203,7 @@ class Agent {
         return $ships;
     }
 
-    private function saveMarkets() {
-        $markets = $this->getSystemMarkets();
-        $allMarketData = [];
-        foreach ($markets as $market) {
-            $marketData = $market->saveData();
-            if ($marketData) {
-                $allMarketData[] = $marketData;
-                echo("Market " . $market->getWaypointSymbol() . " data from " . $market->getTradeGoodsTime() . " saved\n");
-            } else {
-                echo("Market " . $market->getWaypointSymbol() . " not saved\n");
-            }
-        }
-        if (!file_exists(Agent::MARKET_FILE)) {
-            mkdir(dirname(Agent::MARKET_FILE));
-        }
-        file_put_contents(Agent::MARKET_FILE, json_encode($allMarketData, JSON_PRETTY_PRINT));
-    }
-
-    public function loadMarkets() {
-        if (!file_exists(Agent::MARKET_FILE)) {
-            echo("No saved market data\n");
-            return;
-        }
-        $marketData = json_decode(file_get_contents(Agent::MARKET_FILE), true);
-        // Iterate and load into the markets.
-
-        echo("Loading " . count($marketData) . " markets\n");
-        foreach ($marketData as $market) {
-            $w = Waypoint::loadById($market['symbol']);
-            $m = $w->getMarket();
-            // Only add data for markets which don't already have it.
-            if (empty($m->getTradeGoods())) {
-                $m->updateTradeGoodsFromData($market['tradeGoods'], $market['timestamp']);
-            }
-        }
-    }
-
+    /** @Deprecated */
     public function getUnfulfilledContract(): ?Contract {
         $contracts = $this->getContracts();
         foreach ($contracts as $contract) {
@@ -252,88 +214,6 @@ class Agent {
         return null;
     }
 
-    public function buyMiningShip() {
-        $shipyards = $this->getSystemShipyards();
-        // TODO cache shipyard?
-        $ships = $shipyards[0]->getShipyard()['ships'];
-        $cost = 0;
-        foreach ($ships as $ship) {
-            if ($ship['type'] == 'SHIP_MINING_DRONE') {
-                $cost = $ship['purchasePrice'];
-            }
-        }
-
-        // If we can afford it
-        echo("SHIP_MINING_DRONE costs: $cost, have: $this->credits\n");
-        if ($this->credits > $cost) {
-            // TODO check if there is a ship locally?
-            $this->buyShip($shipyards[0], 'SHIP_MINING_DRONE');
-            echo("SHIP_MINING_DRONE purchased\n");
-        }
-    }
-
-    public function acceptContract(Contract $contract) {
-        if (!$contract->getAccepted()) {
-            // TODO this assumes that a ship is on location
-            $data = $contract->accept();
-            $this->updateFromData($data['agent']);
-        }
-    }
-
-    private function fulfillContract(Contract $contract) {
-        if ($contract->getRemaining() == 0) {
-            // TODO this assumes that a ship is on location
-            $contract->fulfill();
-        }
-    }
-
-    public function handleContract(): Contract {
-        $contract = $this->getUnfulfilledContract();
-        if (!$contract) {
-            echo("No current contract, going to HQ to get a new one\n");
-            $ship = get_ship();
-            $contract = $this->negotiateContract($ship);
-        }
-        $this->acceptContract($contract);
-        $this->fulfillContract($contract);
-        return $contract;
-    }
-
-    public function negotiateContract(Ship $ship): Contract {
-        // Navigate to HQ for negotiation.
-        $ship->completeNavigateTo($this->headQuarters);
-        // Once there negotiate.
-        $data = $ship->negotiateContract();
-        $contract = Contract::create($data['contract']);
-        $this->contracts[] = $contract;
-        return $contract;
-    }
-
-    /** Look around the markets to see where the item can be purchased */
-    public function checkPurchases($contract) {
-        $good = $contract->getGood();
-        $amount = $contract->getRemaining();
-        $markets = $this->getSystemMarkets();
-        foreach($markets as $market) {
-            // TODO should find best price?
-            $price = $market->getBuyPrice($good);
-            if ($price) {
-                echo("Could purchase $good at " . $market->getWaypointSymbol() . " for $price\n");
-                $total = $price * $amount;
-                $credits = $this->getCredits();
-                // TODO consider cargo size for this transfer?
-                if ($total > $credits) {
-                    $need = $total - $credits;
-                    echo("Requires $amount, total cost: $total, have $credits, need $need more\n");
-                } else {
-                    echo("Requires $amount, total cost: $total, have $credits, have enough\n");
-                    return $market->getWaypointSymbol();
-                }
-            }
-        }
-        return false;
-    }
-
     public function installMount(Ship $ship, string $mountSymbol) {
         $data = $ship->installMount($mountSymbol);
 
@@ -341,5 +221,17 @@ class Agent {
 
         display_json($data['transaction']);
         echo("Installed " . $mountSymbol . " for ?\n");
+    }
+
+    public function describe() {
+        echo($this->getDescription() ."\n");
+    }
+
+    public function getMarketService(): MarketService {
+        return $this->marketService;
+    }
+
+    public function getContractService(): ContractService {
+        return $this->contractService;
     }
 }

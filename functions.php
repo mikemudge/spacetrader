@@ -44,7 +44,7 @@ function tabs_for(string $str, int $max): string {
 }
 
 function display_json($json_data) {
-    echo("\n" . json_encode($json_data, JSON_PRETTY_PRINT) . "\n");
+    echo(json_encode($json_data, JSON_PRETTY_PRINT) . "\n");
 }
 
 function get_api($url) {

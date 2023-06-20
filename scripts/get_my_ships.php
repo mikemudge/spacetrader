@@ -3,6 +3,7 @@ include_once "classes/autoload.php";
 include_once "functions.php";
 
 $agent = Agent::load();
+$agent->describe();
 
 $url = "https://api.spacetraders.io/v2/my/ships?limit=20";
 $json_data = get_api($url);
@@ -12,11 +13,10 @@ if (has_arg("--describe")) {
     display_json($ships);
 }
 
-echo("cost\tname\t\tspeed\tpower\tmodules\tmounts\tfuel\tcargo\tcrew\tdrill\textra\n");
+echo("name\trole\t\tspeed\tpower\tmodules\tmounts\tfuel\tcargo\tcrew\tdrill\textra\n");
 foreach ($ships as $i => $ship) {
-    // This only exists for ships which can be brought.
-    $dollars = "$" . number_format($ship['purchasePrice'] ?? 0);
-    $type = $ship['type'] ?? $ship['registration']['role'];
+    $name = $ship['symbol'];
+    $type = $ship['registration']['role'];
     $speed = $ship['engine']['speed'];
     $power = $ship['reactor']['powerOutput'];
     $modules = $ship['frame']['moduleSlots'];
@@ -39,6 +39,12 @@ foreach ($ships as $i => $ship) {
             $crew += $m['capacity'];
         } else if (substr($m['symbol'],0, 17) == "MODULE_CARGO_HOLD") {
             $cargo += $m['capacity'];
+        } else if (substr($m['symbol'], 0, 24) == "MODULE_MINERAL_PROCESSOR") {
+            $extraModules[] = "Mine";
+        } else if (substr($m['symbol'], 0, 17) == "MODULE_WARP_DRIVE") {
+            $extraModules[] = "Warp";
+        } else if (substr($m['symbol'], 0, 17) == "MODULE_JUMP_DRIVE") {
+            $extraModules[] = "Jump";
         } else {
             $extraModules[] = $m['symbol'];
         }
@@ -53,6 +59,10 @@ foreach ($ships as $i => $ship) {
     foreach($ship['mounts'] as $m) {
         if (substr($m['symbol'],0, 18)  == 'MOUNT_MINING_LASER') {
             $mineStrength += $m['strength'];
+        } else if (substr($m['symbol'], 0, 14) == "MOUNT_SURVEYOR") {
+            $extraModules[] = "Survey";
+        } else if (substr($m['symbol'], 0, 18) == "MOUNT_SENSOR_ARRAY") {
+            $extraModules[] = "Sensor";
         } else {
             $extraModules[] = $m['symbol'];
         }
@@ -66,7 +76,7 @@ foreach ($ships as $i => $ship) {
     if ($extraModules) {
         $description .= "\t" . json_encode($extraModules);
     }
-    $t1 = tabs_for($dollars, 1);
+    $t1 = tabs_for($name, 1);
     $t2 = tabs_for($type, 2);
-    echo($dollars . $t1 . $type . $t2 . $description .  "\n");
+    echo($name . $t1 . $type . $t2 . $description .  "\n");
 }

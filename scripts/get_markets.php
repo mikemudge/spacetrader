@@ -4,6 +4,7 @@ include_once "functions.php";
 
 $agent = Agent::load();
 $markets = $agent->getSystemMarkets();
+$agent->saveMarketsOnExit();
 
 $describe = get_arg("--describe");
 if ($describe) {
@@ -20,6 +21,8 @@ foreach($markets as $market) {
 foreach($markets as $market) {
     $market->describe();
 }
+
+$agent->getMarketService()->saveMarkets();
 
 /*
 Market at PLANET at 21,-15 (X1-HQ18-11700D)

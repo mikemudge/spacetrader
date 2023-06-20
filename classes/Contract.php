@@ -74,19 +74,13 @@ class Contract {
         $url = "https://api.spacetraders.io/v2/my/contracts/$this->id/fulfill";
         $json_data = post_api($url);
         $this->updateFromData($json_data['data']['contract']);
-        Agent::get()->updateFromData($json_data['data']['agent']);
-
-        $acceptFee = $this->getPayment()['onFulfilled'];
-        echo("Got $acceptFee for accepting a contract\n");
+        return $json_data['data'];
     }
 
     public function accept() {
         $url = "https://api.spacetraders.io/v2/my/contracts/$this->id/accept";
         $json_data = post_api($url);
         $this->updateFromData($json_data['data']['contract']);
-
-        $acceptFee = $this->getPayment()['onAccepted'];
-        echo("Got $acceptFee for accepting a contract\n");
         return $json_data['data'];
     }
 

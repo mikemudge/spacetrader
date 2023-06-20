@@ -16,9 +16,11 @@ class Ship {
     //EXPLORER
     //REFINERY
     const SURVEYOR = "SURVEYOR";
+    const SATELLITE = "SATELLITE";
     const COMMAND = "COMMAND";
     const EXCAVATOR = "EXCAVATOR";
     const REFINERY = "REFINERY";
+    const HAULER = "HAULER";
 
     private $id;
     private $cargo;
@@ -35,6 +37,9 @@ class Ship {
     private $reactor;
     private $frame;
     private $nextActionTime;
+    private $limits = [
+        'REACTOR_FUSION_I' => 10
+    ];
 
     private function __construct($symbol) {
         $this->id = $symbol;
@@ -159,11 +164,17 @@ class Ship {
 
     public function survey() {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/survey";
-        $json_data = post_api($url);
+        try {
+            $json_data = post_api($url);
 
-        $this->setCooldown($json_data['data']['cooldown']['remainingSeconds']);
-
-        return $json_data['data'];
+            $this->setCooldown($json_data['data']['cooldown']['remainingSeconds']);
+            return Survey::createMany($json_data['data']['surveys']);
+        } catch (CooldownException $e) {
+            // Update this ships next action time.
+            // TODO next extract and next action are separate?
+            $this->setCooldown($e->getCooldown()['remainingSeconds']);
+            throw $e;
+        }
     }
 
     public function fuel(): ?Transaction {
@@ -203,11 +214,9 @@ class Ship {
     public function purchase(array $item) {
         $url = "https://api.spacetraders.io/v2/my/ships/$this->id/purchase";
         $json_data = post_api($url, $item);
-
         // Reset cargo after something is purchased.
         $this->cargo = new Cargo($json_data['data']['cargo']);
-
-        return new Transaction($json_data['data']['transaction']);
+        return $json_data['data'];
     }
 
     public function sell($item) {
@@ -364,26 +373,26 @@ class Ship {
             // Need to dock to sell items.
             $this->dock();
         }
-        $totalPrice = 0;
+        $transactions = [];
         foreach($inventory as $item) {
             if (in_array($item['symbol'], $goods)) {
                 continue;
             }
+            if (isset($this->limits[$item['symbol']])) {
+                $item['units'] = min($item['units'], $this->limits[$item['symbol']]);
+            }
             $transaction = $this->sell($item);
-            $transaction->describe();
-            $totalPrice += $transaction->getTotal();
+            $transactions[] = $transaction;
         }
-        return $totalPrice;
+        return $transactions;
     }
 
     // Just deliver how ever much we have to this contract.
     public function deliverContract(Contract $contract) {
         $good = $contract->getGood();
-        $howMuch = min($contract->getRemaining(), $this->getCargo()->getAmountOf($good));
-        // We are at the dropOff location.
-        $this->dock();
         // Check remaining to see if we can drop it all off, and if we should fufill it.
-        $howMuch = min($howMuch, $contract->getRemaining());
+        $howMuch = min($contract->getRemaining(), $this->getCargo()->getAmountOf($good));
+        $this->dock();
         $data = $contract->deliver([
             'shipSymbol' => $this->getId(),
             'tradeSymbol' => $good,
@@ -392,14 +401,6 @@ class Ship {
         echo("$this->id: Delivered $howMuch $good for contract\n");
         echo($contract->getDescription() . "\n");
         $this->cargo = new Cargo($data['cargo']);
-
-        if ($contract->getRemaining() == 0) {
-            // The best time to do this is while we are already on location.
-            echo("Fulfilling contract now\n");
-            $contract->fulfill();
-            return true;
-        }
-        return false;
     }
 
     public function clearInventory($routes) {
@@ -459,21 +460,35 @@ class Ship {
         return ($goodsProfit - $fuelCost); // * 60 / $totalTime;
     }
 
-    public function extractAndSell($hoardGood) {
+    public function extractAndSell($hoardGood, SurveyService $surveyService) {
         // Only extract if we have some space (Selling should keep space available).
         if ($this->getCargo()->getSpace() > 0) {
             $this->orbit();
-            $yield = $this->extractOres();
+            $survey = $surveyService->getSurvey($this, $hoardGood);
+            $data = null;
+            if ($survey) {
+                $chance = $survey->getChance($hoardGood);
+                $data = $survey->getData();
+                echo("$this->id: Using survey with " . $chance . " of $hoardGood\n");
+            }
+            $yield = $this->extractOres($data);
             $cooldown = $this->getCooldown();
             echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . " takes $cooldown\n");
         }
         if ($this->getCargo()->getSpace() <= 5) {
-            echo("$this->id: Selling cargo " . $this->getCargoDescription() . " to make space\n");
-            $totalPrice = $this->sellAllExcept($hoardGood);
+            $before = $this->getCargo()->getUnits();
+            $totalPrice = 0;
+            $transactions = $this->sellAllExcept($hoardGood);
+            foreach ($transactions as $transaction) {
+                $totalPrice += $transaction->getTotal();
+            }
+
             if ($totalPrice > 0) {
-                echo("$this->id: Sold cargo "  . $this->getCargoDescription() . " for $$totalPrice\n");
+                $soldUnits = $before - $this->getCargo()->getUnits();
+                echo("$this->id: Sold $soldUnits cargo for $$totalPrice\n");
             } else {
-                // Nothing sold???
+                // Its not expected that this happens, log more info to help debug it.
+                echo("$this->id: Sold nothing in extractAndSell\n");
                 $this->printCargo();
             }
         }
@@ -515,6 +530,15 @@ class Ship {
     public function hasArrivedAt(Waypoint $waypoint) {
         if ($this->getLocation() == $waypoint->getId()) {
             return $this->status != "IN_TRANSIT";
+        }
+        return false;
+    }
+
+    public function hasMount(string $mountSymbol) {
+        foreach ($this->mounts as $mount) {
+            if ($mount['symbol'] == $mountSymbol) {
+                return true;
+            }
         }
         return false;
     }

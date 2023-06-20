@@ -5,15 +5,7 @@ include_once "functions.php";
 $agent = Agent::load();
 // This will create all markets, and tradeGoods for markets which have ships already.
 $markets = $agent->getSystemMarkets();
-// This will fill in gaps for markets based on saved information.
-$agent->loadMarkets();
-
-// Register the saveMarket signal handler only after we have loaded market data.
-// Otherwise we could replace the saved data with incomplete data.
-pcntl_async_signals(true);
-pcntl_signal(SIGTERM, [$agent, "sig_handler"]);
-pcntl_signal(SIGINT, [$agent, "sig_handler"]);
-
+$agent->saveMarketsOnExit();
 
 // TODO this doesn't find all routes???
 // event markets which import a good can have a price for sell.
@@ -47,6 +39,12 @@ while (true) {
         // TODO should visit these markets to ensure data is up to date.
         // TODO should use the surveyor ship to do this, as its not useful most of the time.
         $market = $unexploredMarkets[0];
+        $ship->completeNavigateTo($market->getWaypointSymbol());
+        echo(count($unexploredMarkets) . " markets left to explore");
+        $market->updateTradeGoods();
+        // Save the markets to files each time we get new data.
+        $agent->getMarketService()->saveMarkets();
+        continue;
     }
 
     $bestRoute = TradeRoute::chooseBest($routes, $ship);

@@ -4,8 +4,8 @@ include_once "functions.php";
 
 $cargo = has_arg("--cargo");
 $agent = Agent::load();
-
-echo($agent->getDescription() ."\n");
+$agent->describe();
+$contactService = $agent->getContractService();
 
 $contract = $agent->getUnfulfilledContract();
 echo("Have " . count($agent->getContracts()) . " contracts\n");

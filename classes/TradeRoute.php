@@ -151,10 +151,11 @@ class TradeRoute {
             }
             echo("Buying $amount of $this->good at $buy\n");
             if ($amount > 0) {
-                $transaction = $ship->purchase([
+                $data = $ship->purchase([
                     'symbol' => $this->good,
                     'units' => $amount
                 ]);
+                $transaction = new Transaction($data['transaction']);
                 $transaction->describe();
                 $actualValue -= $transaction->getTotal();
             }

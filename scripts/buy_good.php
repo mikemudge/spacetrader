@@ -12,8 +12,6 @@ if (!$good) {
 $agent = Agent::load();
 // This will create all markets, and tradeGoods for markets which have ships already.
 $markets = $agent->getSystemMarkets();
-// This will fill in gaps for markets based on saved information.
-$agent->loadMarkets();
 
 // Fixed ship for value calculations (speed and cargo).
 $ship = Ship::load("MUDGE-1");
@@ -23,9 +21,6 @@ $loc = Waypoint::loadById($ship->getLocation());
 $price = $loc->getMarket()->getBuyPrice($good);
 echo("Purchase $amount@$$price for $" . ($price*$amount) . "\n");
 if ($amount > 0) {
-    $ship->dock();
-    $ship->purchase([
-        'units' => $amount,
-        'symbol' => $good
-    ]);
+    $transaction = $agent->getMarketService()->purchase($ship, $good, $amount);
+    $transaction->describe();
 }
