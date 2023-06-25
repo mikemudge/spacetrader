@@ -28,13 +28,15 @@ class Waypoint {
         $this->systemSymbol = substr($this->id, 0, strripos($this->id, "-"));
     }
 
+    /**
+     * A way to load a single waypoints meta data.
+     * More commonly we should load all waypoints in a system with a call to loadSystem()
+     */
     public static function load(string $symbol) {
         $waypoint = new Waypoint($symbol);
         $url = "https://api.spacetraders.io/v2/systems/$waypoint->systemSymbol/waypoints/$waypoint->id";
         $json_data = get_api($url);
-        $waypoint->updateData($json_data['data']);
-        Waypoint::$cachedWaypoints[$waypoint->getId()] = $waypoint;
-        return $waypoint;
+        return $json_data;
     }
 
     public static function fromData($waypointData) {
@@ -66,8 +68,7 @@ class Waypoint {
 
     public static function loadById($waypointSymbol): Waypoint {
         if (!isset(Waypoint::$cachedWaypoints[$waypointSymbol])) {
-            echo("Loading uncached waypoint $waypointSymbol\n");
-            Waypoint::$cachedWaypoints[$waypointSymbol] = Waypoint::load($waypointSymbol);
+            throw new RuntimeException("Loading uncached waypoint $waypointSymbol");
         }
         return Waypoint::$cachedWaypoints[$waypointSymbol];
     }

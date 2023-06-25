@@ -9,13 +9,15 @@ class Market {
     private $exports;
     private $exchange;
     /** @var Good[] */
-    private $tradeGoods;
-    private $tradeGoodsTime;
+    private array $tradeGoods;
+    private int $tradeGoodsTime;
 
     public function __construct(Waypoint $waypoint) {
         $this->waypoint = $waypoint;
         $this->systemSymbol = $waypoint->getSystemSymbol();
         $this->waypointId = $waypoint->getId();
+        // 0 implies this has never had tradeGoods loaded.
+        $this->tradeGoodsTime = 0;
     }
 
     public static function fromData(Waypoint $waypoint, $data) {
@@ -100,7 +102,11 @@ class Market {
         $url = "https://api.spacetraders.io/v2/systems/$this->systemSymbol/waypoints/$this->waypointId/market";
         $json_data = get_api($url);
         $data = $json_data['data'];
-        $this->updateTradeGoodsFromData($data['tradeGoods'], time());
+        // This could happen if a ship is not present, which might just be a slight timing issue?
+        // Just skip if it doesn't exist, the next cycle should get it.
+        if (isset($data['tradeGoods'])) {
+            $this->updateTradeGoodsFromData($data['tradeGoods'], time());
+        }
     }
 
     public function getTradeGoodsTime() {
@@ -120,10 +126,6 @@ class Market {
     }
 
     public function saveData() {
-        if (empty($this->tradeGoods)) {
-            // No trade goods to save.
-            return null;
-        }
         $goods = [];
         foreach($this->tradeGoods as $good) {
             $goods[] = $good->saveData();

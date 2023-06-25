@@ -4,8 +4,8 @@ include_once "functions.php";
 
 $agent = Agent::load();
 // This will create all markets, and tradeGoods for markets which have ships already.
-$markets = $agent->getSystemMarkets();
-$agent->saveMarketsOnExit();
+$markets = $agent->getMarketService()->getSystemMarkets();
+$agent->saveOnExit();
 
 // TODO this doesn't find all routes???
 // event markets which import a good can have a price for sell.

@@ -11,7 +11,7 @@ if (!$good) {
 
 $agent = Agent::load();
 // This will create all markets, and tradeGoods for markets which have ships already.
-$markets = $agent->getSystemMarkets();
+$markets = $agent->getMarketService()->getSystemMarkets();
 
 // Fixed ship for value calculations (speed and cargo).
 $ship = Ship::load("MUDGE-1");

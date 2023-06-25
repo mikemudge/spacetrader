@@ -5,19 +5,22 @@ include_once "functions.php";
 $agent = Agent::load();
 // Preload all waypoints.
 $agent->getSystemWaypoints();
-$ships = $agent->getShips();
 $reloadShipsTime = time();
 $asteroid = $agent->getAsteroids()[0];
 
 $noCommand = has_arg("--no_command");
-$survey = new SurveyService($agent);
+$surveyService = $agent->getSurveyService();
 $marketService = $agent->getMarketService();
 $contractService = $agent->getContractService();
-$financeService = new FinanceService($agent);
+$financeService = $agent->getFinanceService();
+// This will load all the ships initially.
+// TODO could be done offline through the save file?
+$agent->reloadShips();
 
 // Need the command ship so that we can transfer to it.
 // TODO could be the delivery ship, in case we replace it later with a fast/cargo ship.
 $commandShip = null;
+$ships = $agent->getShips();
 foreach($ships as $ship) {
     if ($ship->getRole() == "COMMAND") {
         $commandShip = $ship;
@@ -42,13 +45,11 @@ while(true) {
     $now = time();
     if ($now > $reloadShipsTime) {
         // Periodically every ~100 we run some checks.
-        echo(date('H:i:s') . ": Reloading " . $agent->getDescription() . "\n");
-        // This makes it possible for ships to be purchased outside of this script.
-        $ships = $agent->reloadShips();
+        $agent->update();
         $reloadShipsTime = $now + 100;
     }
 
-    $ship = getNextAvailable($ships, $excludedShips);
+    $ship = getNextAvailable($agent->getShips(), $excludedShips);
     $shipId = $ship->getId();
     $role = $ship->getRole();
     $cooldown = $ship->getCooldown();
@@ -62,16 +63,11 @@ while(true) {
     }
 
     try {
-        $contractGood = $contractService->getCurrentGood();
-        if ($contractGood && $survey->perform($ship, $contractGood)) {
-            // You can't survey and mine in the same turn.
-            continue;
-        };
-
         switch($role) {
             case Ship::SURVEYOR:
             case Ship::SATELLITE:
                 // TODO contracts should normally be handled by the ship who delivers them?
+                // however there is an initial accept which must be done, and this ship starts at HQ.
                 if ($contractService->ensureContract($ship)) {
                     break;
                 }
@@ -109,7 +105,12 @@ while(true) {
                     break;
                 }
                 $contractGood = $contractService->getCurrentGood();
-                $ship->extractAndSell($contractGood, $survey);
+                if ($contractGood && $surveyService->perform($ship, $contractGood)) {
+                    // You can't survey and mine in the same turn.
+                    break;
+                };
+
+                $ship->extractAndSell($contractGood, $surveyService);
                 break;
             case Ship::HAULER:
             case Ship::REFINERY:
@@ -142,14 +143,18 @@ while(true) {
                     break;
                 }
 
-                // Transfer important goods to commandShip if possible.
-                // TODO should we do this at sell time only to reduce API calls?
                 $contractGood = $contractService->getCurrentGood();
+                if ($surveyService->perform($ship, $contractGood)) {
+                    // You can't survey and mine in the same turn.
+                    break;
+                };
+
+                // Transfer important goods to commandShip if possible.
                 if ($contractGood) {
                     $ship->transferAll($contractGood, $commandShip);
                 }
 
-                $ship->extractAndSell($contractGood, $survey);
+                $ship->extractAndSell($contractGood, $surveyService);
                 break;
             default:
                 throw new RuntimeException("Unknown ship role $role");

@@ -37,7 +37,7 @@ class SurveyService {
         $surveys = $this->getSurveys($location, $good);
 
         if (count($surveys) > 10) {
-            echo($ship->getId() . ": Have enough surveys for $good at $location");
+            echo($ship->getId() . ": Have enough surveys for $good at $location\n");
             // TODO need to cull this list to keep valuable surveys and remove others/expired one?
             return false;
         }
@@ -61,9 +61,35 @@ class SurveyService {
         return true;
     }
 
+    private function getValuableSurvey(Ship $ship) {
+        // Lookup a survey for this location/resource.
+        $location = $ship->getLocation();
+
+        $market = $this->asteroid->getMarket();
+        if (!$market) {
+            // So far all asteroid fields I've seen have a market.
+            return null;
+        }
+
+        $bestChance = 0;
+        $bestSurvey = null;
+        foreach (SurveyService::MINABLE as $good) {
+            // TODO should just be able to get all surveys at a location?
+            $surveys = $this->getSurveys($location, $good);
+            foreach ($surveys as $survey) {
+                /** @var Survey $survey */
+                $chance = $survey->getExpectedValue($market);
+                if ($chance > $bestChance) {
+                    $bestSurvey = $survey;
+                }
+            }
+        }
+        return $bestSurvey;
+    }
+
     public function getSurvey(Ship $ship, $good): ?Survey {
         if (!$good) {
-            return null;
+            return $this->getValuableSurvey($ship);
         }
         // Lookup a survey for this location/resource.
         $location = $ship->getLocation();
@@ -73,11 +99,9 @@ class SurveyService {
         $bestSurvey = null;
         foreach($surveys as $survey) {
             /** @var Survey $survey */
-            if ($survey->getLocation() == $ship->getLocation()) {
-                $chance = $survey->getChance($good);
-                if ($chance > $bestChance) {
-                    $bestSurvey = $survey;
-                }
+            $chance = $survey->getChance($good);
+            if ($chance > $bestChance) {
+                $bestSurvey = $survey;
             }
         }
         return $bestSurvey;
@@ -91,5 +115,26 @@ class SurveyService {
             $this->locations[$location][$good] = [];
         }
         return $this->locations[$location][$good];
+    }
+
+    public function saveData() {
+        return ['surveys' => $this->locations];
+    }
+
+    public function loadFrom($surveys) {
+        $count = 0;
+        // TODO should have a nicer format?
+        // And remove expired entries on save and load calls?
+        foreach ($surveys['surveys'] as $loc => $locData) {
+            foreach ($locData as $good => $goodSurveys) {
+                $data = [];
+                foreach ($goodSurveys as $survey) {
+                    $data[] = $survey['data'];
+                    $count++;
+                }
+                $this->locations[$loc][$good] = Survey::createMany($data);
+            }
+        }
+        echo("Loaded $count surveys\n");
     }
 }

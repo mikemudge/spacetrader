@@ -36,6 +36,7 @@ class Ship {
     private $engine;
     private $reactor;
     private $frame;
+    private $data;
     private $nextActionTime;
     private $limits = [
         'REACTOR_FUSION_I' => 10
@@ -94,6 +95,11 @@ class Ship {
         return $this->engine;
     }
 
+    public function saveData() {
+        // TODO cargo can get outdated?
+        return $this->data;
+    }
+
     public function getLocation(): string {
         return $this->location->getId();
     }
@@ -123,6 +129,7 @@ class Ship {
     }
 
     public function updateFromData($data) {
+        $this->data = $data;
         $this->faction = $data['registration']['factionSymbol'];
         $this->role = $data['registration']['role'];
         $this->fuel = $data['fuel'];
@@ -338,30 +345,6 @@ class Ship {
         $this->waitForCooldown();
     }
 
-    /*
-     * change navigation speed.
-     curl --request PATCH \
- --url 'https://api.spacetraders.io/v2/my/ships/:shipSymbol/nav' \
- --header 'Authorization: Bearer INSERT_TOKEN_HERE' \
- --header 'Content-Type: application/json' \
- --data '{
-    "flightMode": "CRUISE"
-   }'
-     */
-    public function sellAll() {
-        // TODO get location/market and confirm what can be sold?
-        $cargo = $this->getCargo();
-        $inventory = $cargo->getInventory();
-        if (count($inventory) > 0) {
-            // Need to dock to sell items.
-            $this->dock();
-        }
-        foreach($inventory as $item) {
-            $transaction = $this->sell($item);
-            $transaction->describe();
-        }
-    }
-
     public function sellAllExcept($goods) {
         if (!is_array($goods)) {
             $goods = [$goods];
@@ -467,9 +450,9 @@ class Ship {
             $survey = $surveyService->getSurvey($this, $hoardGood);
             $data = null;
             if ($survey) {
-                $chance = $survey->getChance($hoardGood);
+                $chance = number_format($survey->getChance($hoardGood) * 100);
                 $data = $survey->getData();
-                echo("$this->id: Using survey with " . $chance . " of $hoardGood\n");
+                echo("$this->id: Using survey with " . $chance . "% chance of $hoardGood\n");
             }
             $yield = $this->extractOres($data);
             $cooldown = $this->getCooldown();
@@ -488,8 +471,8 @@ class Ship {
                 echo("$this->id: Sold $soldUnits cargo for $$totalPrice\n");
             } else {
                 // Its not expected that this happens, log more info to help debug it.
-                echo("$this->id: Sold nothing in extractAndSell\n");
                 $this->printCargo();
+                throw new RuntimeException("$this->id: Sold nothing in extractAndSell");
             }
         }
     }
@@ -507,10 +490,21 @@ class Ship {
     }
 
     public function transferAll($hoardGood, Ship $ship) {
-        if ($this->getLocation() == $ship->getLocation()) {
-            $amount = $this->getCargo()->getAmountOf($hoardGood);
+        $amount = $this->getCargo()->getAmountOf($hoardGood);
+        if ($amount == 0) {
+            return;
+        }
+
+        if ($this->getLocation() != $ship->getLocation()) {
+            echo("$this->id: Need to transfer $amount $hoardGood, but " . $ship->getId() . " isn't around\n");
+            $this->setCooldown(10);
+        } else {
             // If the ship has less space, just transfer as much as we can.
             $amount = min($amount, $ship->getCargo()->getSpace());
+            if ($ship->getCargo()->getSpace() == 0) {
+                echo("$this->id: Need to transfer $hoardGood, but no space available in " . $ship->getId() . "\n");
+                $this->setCooldown(10);
+            }
             if ($amount > 0) {
                 if ($this->matchStatus($ship)) {
                     $this->transfer($ship, $hoardGood, $amount);

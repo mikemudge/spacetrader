@@ -2,7 +2,7 @@
 
 class Survey {
 
-    private array $data;
+    public array $data;
     private string $size;
     private $expiry;
     private string $location;
@@ -53,5 +53,13 @@ class Survey {
     public function getChance($good) {
         // The number of times good appears divided by the total number of things we could get.
         return array_count_values($this->deposits)[$good] / count($this->deposits);
+    }
+
+    public function getExpectedValue(Market $market) {
+        $total = 0;
+        foreach ($this->deposits as $ore) {
+            $total += $market->getSellPrice($ore);
+        }
+        return $total / count($this->deposits);
     }
 }

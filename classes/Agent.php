@@ -1,15 +1,18 @@
 <?php
 
 class Agent {
-    const MARKET_FILE = "data/markets.json";
+    const SYSTEM_FILE = "data/system.json";
     private static Agent $agent;
 
     private MarketService $marketService;
     private ContractService $contractService;
+    private FinanceService $financeService;
+    private SurveyService $surveyService;
 
     /** @var string "MUDGE" for me */
     private $id;
-    private $ships;
+    /** @var Ship[] */
+    private array $ships;
     private $faction;
     private $headQuarters;
     private $systemSymbol;
@@ -21,12 +24,15 @@ class Agent {
         $this->updateFromData($data);
         $this->marketService = new MarketService($this);
         $this->contractService = new ContractService($this);
+        $this->financeService = new FinanceService($this);
+        $this->surveyService = new SurveyService($this);
         $this->ships = [];
     }
 
     public static function load() {
         $json_data = get_api("https://api.spacetraders.io/v2/my/agent");
         $agent = new Agent($json_data['data']);
+        $agent->loadAllData();
         Agent::$agent = $agent;
         return $agent;
     }
@@ -35,9 +41,10 @@ class Agent {
         return Agent::$agent;
     }
 
-    public function saveMarketsOnExit() {
-        // Register the saveMarket signal handler only after we have loaded market data.
+    public function saveOnExit() {
+        // Register the signal handler after we have loaded.
         // Otherwise we could replace the saved data with incomplete data.
+        // It may be better to manually save data when new information has been found?
         pcntl_async_signals(true);
         pcntl_signal(SIGTERM, [$this, "sig_handler"]);
         pcntl_signal(SIGINT, [$this, "sig_handler"]);
@@ -46,7 +53,7 @@ class Agent {
     public function sig_handler($signo) {
         echo("Handling signal $signo\n");
 
-        $this->getMarketService()->saveMarkets();
+        $this->saveAllData();
         exit;
     }
 
@@ -74,8 +81,16 @@ class Agent {
         return $this->contracts;
     }
 
+    public function update() {
+        echo(date('H:i:s') . ": Reloading " . $this->getDescription() . "\n");
+        // This makes it possible for ships to be purchased outside of this script.
+        $this->reloadShips();
+        $this->saveAllData();
+    }
+
     public function reloadShips() {
-        $limit = count($this->ships) + 2;
+        $firstTime = empty($this->ships);
+        $limit = max(20, count($this->ships) + 2);
         // TODO better paginate? But it costs API calls?
         $url = "https://api.spacetraders.io/v2/my/ships?limit=$limit";
         $json_data = get_api($url);
@@ -88,28 +103,18 @@ class Agent {
             if (isset($shipMap[$symbol])) {
                 $shipMap[$symbol]->updateFromData($data);
             } else {
-                echo("A new ship was discovered during refresh $symbol\n");
+                if (!$firstTime) {
+                    echo("A new ship was discovered during refresh $symbol\n");
+                }
                 $this->ships[] = Ship::fromData($data);
             }
         }
-        return $this->ships;
     }
 
     /**
      * @return Ship[]
      */
     public function getShips() {
-        if ($this->ships) {
-            return $this->ships;
-        }
-
-        $url = "https://api.spacetraders.io/v2/my/ships?limit=20";
-        $json_data = get_api($url);
-        $meta = $json_data['meta'];
-        // has "total": 11, "page": 1, "limit": 20
-        foreach ($json_data['data'] as $data) {
-            $this->ships[] = Ship::fromData($data);
-        }
         return $this->ships;
     }
 
@@ -137,10 +142,6 @@ class Agent {
             $this->systemWaypoints = Waypoint::loadSystem($this->systemSymbol);
         }
         return $this->systemWaypoints;
-    }
-
-    public function getSystemMarkets() {
-        return $this->getMarketService()->getSystemMarkets();
     }
 
     public function getCredits(): int {
@@ -233,5 +234,49 @@ class Agent {
 
     public function getContractService(): ContractService {
         return $this->contractService;
+    }
+
+    public function getFinanceService(): FinanceService {
+        return $this->financeService;
+    }
+
+    public function getSurveyService(): SurveyService {
+        return $this->surveyService;
+    }
+
+    public function loadAllData() {
+        if (!file_exists(Agent::SYSTEM_FILE)) {
+            echo("No saved market data\n");
+            return;
+        }
+        echo("Loading all data from " . Agent::SYSTEM_FILE . "\n");
+
+        $systemData = json_decode(file_get_contents(Agent::SYSTEM_FILE), true);
+
+        $this->marketService->loadFrom($systemData['markets']);
+        $this->financeService->loadFrom($systemData['finance']);
+        $this->surveyService->loadFrom($systemData['surveys']);
+
+        $this->loadShips();
+    }
+
+    private function loadShips() {
+        // This will make an API call.
+        $this->reloadShips();
+        echo("Loaded " . count($this->ships) . " ships\n");
+    }
+
+    public function saveAllData() {
+        $systemData = [
+            'markets' => $this->getMarketService()->saveData(),
+            'finance' => $this->getFinanceService()->saveData(),
+            'surveys' => $this->getSurveyService()->saveData()
+        ];
+
+        if (!file_exists(dirname(Agent::SYSTEM_FILE))) {
+            mkdir(dirname(Agent::SYSTEM_FILE));
+        }
+        file_put_contents(Agent::SYSTEM_FILE, json_encode($systemData, JSON_PRETTY_PRINT));
+        echo("Saved all data to " . Agent::SYSTEM_FILE . "\n");
     }
 }

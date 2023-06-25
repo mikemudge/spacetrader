@@ -3,8 +3,7 @@ include_once "classes/autoload.php";
 include_once "functions.php";
 
 $agent = Agent::load();
-$markets = $agent->getSystemMarkets();
-$agent->saveMarketsOnExit();
+$markets = $agent->getMarketService()->getSystemMarkets();
 
 $describe = get_arg("--describe");
 if ($describe) {
@@ -22,7 +21,7 @@ foreach($markets as $market) {
     $market->describe();
 }
 
-$agent->getMarketService()->saveMarkets();
+$agent->saveAllData();
 
 /*
 Market at PLANET at 21,-15 (X1-HQ18-11700D)

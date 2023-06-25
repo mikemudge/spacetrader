@@ -4,7 +4,7 @@ include_once "functions.php";
 
 $agent = Agent::load();
 // This will create all markets, and tradeGoods for markets which have ships already.
-$markets = $agent->getSystemMarkets();
+$markets = $agent->getMarketService()->getSystemMarkets();
 
 $routes = TradeRoute::findAll($markets);
 

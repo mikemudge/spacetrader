@@ -7,6 +7,12 @@ $agent = Agent::load();
 $waypoints = $agent->getSystemWaypoints();
 $systemId = $agent->getSystemSymbol();
 
+$descibe = get_arg("--describe");
+if ($descibe) {
+    $waypointData = Waypoint::load($descibe);
+    display_json($waypointData);
+}
+
 echo("System: $systemId\n");
 foreach ($waypoints as $waypoint) {
     echo($waypoint->getDescription() . " with " . get_symbols($waypoint->getTraits()) . "\n");

@@ -106,6 +106,8 @@ class ContractService {
             $data = $ship->negotiateContract();
             $contract = Contract::create($data['contract']);
             $this->agent->addContract($contract);
+        }
+        if (!$contract->getAccepted()) {
             // Currently all contracts are accepted immediately.
             $data = $contract->accept();
             $acceptFee = number_format($contract->getPayment()['onAccepted']);

@@ -19,12 +19,12 @@ class FinanceService {
 
         if (empty($this->ships)) {
             // On the first call this will update the ships and exit.
+            // TODO ships should load from cache, like markets do?
+            echo($ship->getId() . ": Preloading shipyard ships.\n");
             $mustNavigate = $this->updateShipyardDetails($ship);
             if ($mustNavigate) {
                 return true;
             }
-            // TODO ships should load from cache, like markets do?
-            echo($ship->getId() . ": Preloaded shipyard ships.\n");
         }
 
         // TODO should probably get some more advanced logic for which ship to buy when?
@@ -66,17 +66,34 @@ class FinanceService {
         return false;
     }
 
-    private function updateShipyardDetails($purchaserShip): bool {
+    private function updateShipyardDetails(Ship $purchaserShip): bool {
         if ($purchaserShip->getLocation() != $this->shipyard->getId()) {
             $purchaserShip->navigateTo($this->shipyard->getId());
             // Wait for cooldown
             return true;
         }
 
-        $ships = $this->shipyard->getShipyard()['ships'];
-        foreach ($ships as $ship) {
+        $shipyard = $this->shipyard->getShipyard();
+        // This could happen if a ship is not present, which might just be a slight timing issue?
+        // Seems to only affect the SATELLITE ship (MUDGE-2)?
+        if (!isset($shipyard['ships'])) {
+            $purchaserShip->setCooldown(1);
+            return true;
+        }
+        foreach ($shipyard['ships'] as $ship) {
             $this->ships[$ship['type']] = $ship;
         }
         return false;
+    }
+
+    public function saveData(): array {
+        return [
+            'ships' => $this->ships
+        ];
+    }
+
+    public function loadFrom(array $data) {
+        echo("Loading " . count($data['ships']) . " purchasable ships\n");
+        $this->ships = $data['ships'];
     }
 }

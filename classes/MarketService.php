@@ -9,35 +9,23 @@ class MarketService {
     public function __construct(\Agent $agent) {
         $this->agent = $agent;
         $this->markets = [];
-        // This will fill in gaps for markets based on saved information.
-        $this->loadMarkets();
     }
 
     public function getSystemMarkets() {
         return $this->markets;
     }
 
-    public function saveMarkets() {
-        echo("Saving market tradeGoods\n");
+    public function saveData(): array {
         $markets = $this->getSystemMarkets();
         $allMarketData = [];
         foreach ($markets as $market) {
             $marketData = $market->saveData();
-            if ($marketData) {
-                $allMarketData[] = $marketData;
-                echo("Market " . $market->getWaypointSymbol() . " data from " . $market->getTradeGoodsTime() . " saved\n");
-            } else {
-                echo("Market " . $market->getWaypointSymbol() . " not saved\n");
-            }
+            $allMarketData[] = $marketData;
         }
-        if (!file_exists(dirname(Agent::MARKET_FILE))) {
-            mkdir(dirname(Agent::MARKET_FILE));
-        }
-        file_put_contents(Agent::MARKET_FILE, json_encode($allMarketData, JSON_PRETTY_PRINT));
-        echo("Saved\n");
+        return $allMarketData;
     }
 
-    private function loadMarkets() {
+    public function loadFrom(array $marketData) {
         // Get all the markets we can from the system.
         $waypoints = $this->agent->getSystemWaypoints();
         foreach ($waypoints as $waypoint) {
@@ -46,13 +34,6 @@ class MarketService {
                 $this->markets[] = $market;
             }
         }
-        if (!file_exists(Agent::MARKET_FILE)) {
-            echo("No saved market data\n");
-            return;
-        }
-        $marketData = json_decode(file_get_contents(Agent::MARKET_FILE), true);
-        // Iterate and load into the markets.
-        // TODO skip loading of other systems markets?
 
         echo("Loading " . count($marketData) . " markets\n");
         foreach ($marketData as $market) {
@@ -66,9 +47,34 @@ class MarketService {
     }
 
     public function updateRates(?Ship $ship) {
-        // Visit markets to keep the prices up to date.
-        // TODO consider if other ships are frequenting locations?
-        // Or just go to markets which haven't been visited in the longest time.
+        // TODO if there are multiple markets with the same age, should we use the closest? Travelling salesman?
+
+        $markets = $this->getSystemMarkets();
+        $oldest = time();
+        $oldMarket = null;
+        foreach ($markets as $market) {
+            $lastTime = $market->getTradeGoodsTime();
+            if ($oldMarket == null || $lastTime < $oldest) {
+                $oldMarket = $market;
+                $oldest = $lastTime;
+            }
+        }
+        if ($oldest < strtotime("-1 hour")) {
+            echo($ship->getId() . ": Refresh outdated market " . $oldMarket->getWaypointSymbol() . " at $oldest\n");
+            // Older than an hour requires refresh.
+            $loc = $oldMarket->getWaypointSymbol();
+            if ($ship->getLocation() != $loc) {
+                $ship->navigateTo($loc);
+                // Return now for cooldown.
+                return true;
+            }
+            // TODO sometimes the ship hasn't arrived yet?
+            $oldMarket->updateTradeGoods();
+
+            // Didn't technically consume its turn, but we don't want a 100 second cooldown from returning false.
+            // We want this to updateRates again on the next turn.
+            return true;
+        }
         return false;
     }
 
@@ -97,7 +103,6 @@ class MarketService {
 
         // Keep the market goods up to date.
         Waypoint::loadById($ship->getLocation())->getMarket()->updateTradeGoods();
-        $this->saveMarkets();
 
         $this->agent->updateFromData($data['agent']);
 
