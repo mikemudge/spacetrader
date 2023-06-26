@@ -461,7 +461,7 @@ class Ship {
             if ($survey) {
                 $chance = number_format($survey->getChance($hoardGood) * 100);
                 $data = $survey->getData();
-                echo("$this->id: Using survey with " . $chance . "% chance of $hoardGood\n");
+//                echo("$this->id: Using survey with " . $chance . "% chance of $hoardGood\n");
             }
             $yield = $this->extractOres($data);
             $cooldown = $this->getCooldown();

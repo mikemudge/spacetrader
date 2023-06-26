@@ -37,7 +37,7 @@ class SurveyService {
         $surveys = $this->getSurveys($location, $good);
 
         if (count($surveys) > 10) {
-            echo($ship->getId() . ": Have enough surveys for $good at $location\n");
+//            echo($ship->getId() . ": Have enough surveys for $good at $location\n");
             // TODO need to cull this list to keep valuable surveys and remove others/expired one?
             return false;
         }
@@ -47,9 +47,9 @@ class SurveyService {
         // Consider size of each when counting how much we have?
 
         $ship->orbit();
-        $surveys = $ship->survey();
+        $newSurveys = $ship->survey();
         echo($ship->getId() . ": Surveyed at " . $ship->getLocation() . ", and found\n");
-        foreach ($surveys as $s) {
+        foreach ($newSurveys as $s) {
             /** @var Survey $s */
             if ($s->hasResource($good)) {
                 $this->locations[$location][$good][] = $s;
@@ -101,6 +101,7 @@ class SurveyService {
             /** @var Survey $survey */
             $chance = $survey->getChance($good);
             if ($chance > $bestChance) {
+                $bestChance = $chance;
                 $bestSurvey = $survey;
             }
         }

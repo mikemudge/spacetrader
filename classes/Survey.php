@@ -7,6 +7,8 @@ class Survey {
     private $expiry;
     private string $location;
     private array $deposits;
+    private int $count;
+    private array $chances;
 
     public function __construct($data) {
         $this->data = $data;
@@ -16,6 +18,12 @@ class Survey {
         $this->deposits = [];
         foreach ($data['deposits'] as $d) {
             $this->deposits[] = $d['symbol'];
+        }
+        $this->count = count($this->deposits);
+        // The number of times good appears divided by the total number of things we could get.
+        $this->chances = array_count_values($this->deposits);
+        foreach ($this->chances as $k=>$v) {
+            $this->chances[$k] /= $this->count;
         }
     }
 
@@ -51,8 +59,7 @@ class Survey {
     }
 
     public function getChance($good) {
-        // The number of times good appears divided by the total number of things we could get.
-        return array_count_values($this->deposits)[$good] / count($this->deposits);
+        return $this->chances[$good];
     }
 
     public function getExpectedValue(Market $market) {
