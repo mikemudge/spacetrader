@@ -4,22 +4,10 @@ class ContractService {
 
     private Agent $agent;
     private string $contractLocation;
-    private ?Contract $currentContract;
 
     public function __construct(Agent $agent) {
         $this->agent = $agent;
         $this->contractLocation = $this->agent->getHeadQuarters();
-        $this->currentContract = null;
-    }
-
-    public function getUnfulfilledContract(): ?Contract {
-        $contracts = $this->agent->getContracts();
-        foreach ($contracts as $contract) {
-            if (!$contract->getFulfilled()) {
-                return $contract;
-            }
-        }
-        return null;
     }
 
     public function deliverContract(Ship $ship) {
@@ -36,8 +24,8 @@ class ContractService {
         if (!in_array($contractGood, SurveyService::MINABLE)) {
             // Lose your cargo to maximize carry ability.
             $ship->sellAllExcept($contractGood);
-            echo($ship->getId() . ": $contractGood cannot be mined, will need to purchase it\n");
-            if ($ship->getCargo()->getSpace() > 0) {
+            $howMuch = $ship->getCargo()->getAmountOf($contractGood);
+            if ($howMuch == 0) {
                 if ($this->purchase($ship, $goal)) {
                     return true;
                 }
@@ -50,7 +38,7 @@ class ContractService {
         // What if the contract only needs 10 more?
         if ($howMuch >= $goal->getRemaining() || $howMuch > $ship->getCargo()->getCapacity() - 10) {
             if ($ship->getLocation() != $goal->getLocation()) {
-                echo($ship->getId() . ": Need to travel to deliver $contractGood for contract\n");
+                echo($ship->getId() . ": Need to travel to deliver $howMuch $contractGood for contract\n");
                 $ship->navigateTo($goal->getLocation());
                 return true;
             }
@@ -119,24 +107,29 @@ class ContractService {
 
     public function getCurrentContract(): ?Contract {
         // For now always check the first unfulfilled contract.
-        $c = $this->getUnfulfilledContract();
-        if ($this->currentContract !== $c) {
-            // If its changed make a note about it.
-            $this->currentContract = $c;
-            if ($this->currentContract) {
-                echo("Found contract\n");
-                $this->currentContract->describe();
-            } else {
-                echo("Contract ended\n");
+        // TODO this should be caching the contracts?
+        $contracts = $this->agent->getContracts();
+        foreach ($contracts as $contract) {
+            if (!$contract->getFulfilled()) {
+                return $contract;
             }
         }
-        return $this->currentContract;
+        return null;
     }
 
     public function purchase(Ship $ship, Contract $contract): bool {
         // Find good for sale and deliver it?
+        // TODO this will purchase a cargo load as soon as it can.
+        // It would be more efficient to deliver multiple cargo loads at a time.
+        // Otherwise the ship will return to the asteroid between deliveries.
         $good = $contract->getGood();
+        $amountInCargo = $ship->getCargo()->getAmountOf($good);
+        $amount = min($contract->getRemaining() - $amountInCargo, $ship->getCargo()->getSpace());
 
+        if ($amount == 0) {
+            // Unable to actually purchase anything, just return to caller.
+            return false;
+        }
         $marketService = $this->agent->getMarketService();
         $market = $marketService->getBestMarketFor($good);
         if (!$market) {
@@ -144,18 +137,12 @@ class ContractService {
             return false;
         }
         $price = $market->getBuyPrice($good);
-        echo($ship->getId() . ": Using market " . $market->getWaypointSymbol() . " to purchase $good @ $$price\n");
-
-        // TODO this will purchase a cargo load as soon as it can.
-        // It would be more efficient to deliver multiple cargo loads at a time.
-        // Otherwise the ship will return to the asteroid between deliveries.
-        $amountInCargo = $ship->getCargo()->getAmountOf($good);
-        $amount = min($contract->getRemaining() - $amountInCargo, $ship->getCargo()->getSpace());
         $total = $price * $amount;
         $credits = $this->agent->getCredits();
+
+        echo($ship->getId() . ": Checking market " . $market->getWaypointSymbol() . " to purchase $amount $good @ $$price for $total, we have $credits\n");
         if ($total > $credits) {
             $need = $total - $credits;
-            echo($ship->getId() . ": Buying $amount, total cost: $total, have $credits, need $need more\n");
             // Need more money to perform this purchase.
             // TODO should we wait around, or go back and mine more?
             // Currently return to mining.
@@ -168,18 +155,23 @@ class ContractService {
                 return true;
             }
             return false;
-        } else {
-            echo("Requires $amount, total cost: $total, have $credits, have enough\n");
         }
         if ($ship->getLocation() != $market->getWaypointSymbol()) {
             echo($ship->getId() . ": Going to the market to purchase $amount of $good\n");
             $ship->navigateTo($market->getWaypointSymbol());
             return true;
         }
-        $ship->dock();
-        $transaction = $marketService->purchase($ship, $contract->getGood(), $amount);
-        $transaction->describe();
-        echo($ship->getId() . ": Purchased $amount of $good\n");
+        if ($amount > 0) {
+            $transactions = $marketService->purchase($ship, $contract->getGood(), $amount);
+            $this->listTransactions($ship, $transactions);
+        }
         return false;
+    }
+
+    private function listTransactions(Ship $ship, array $transactions) {
+        /** @var Transaction $t */
+        foreach($transactions as $t) {
+            echo($ship->getId() . ": " . $t->getDescription() . "\n");
+        }
     }
 }

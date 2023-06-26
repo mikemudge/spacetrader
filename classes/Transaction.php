@@ -16,8 +16,12 @@ class Transaction {
         $this->pricePerUnit = $data['pricePerUnit'];
     }
 
+    public function getDescription() {
+        return "$this->type $this->units $this->tradeSymbol at $$this->pricePerUnit for $$this->totalPrice";
+    }
+
     public function describe() {
-        echo("$this->type $this->units $this->tradeSymbol at $$this->pricePerUnit for $$this->totalPrice\n");
+        echo($this->getDescription() . "\n");
     }
 
     public function getTotal() {

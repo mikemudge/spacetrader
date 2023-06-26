@@ -38,9 +38,6 @@ class Ship {
     private $frame;
     private $data;
     private $nextActionTime;
-    private $limits = [
-        'REACTOR_FUSION_I' => 10
-    ];
 
     private function __construct($symbol) {
         $this->id = $symbol;
@@ -232,9 +229,7 @@ class Ship {
 
         // Reset cargo after something is sold.
         $this->cargo = new Cargo($json_data['data']['cargo']);
-        Agent::get()->updateFromData($json_data['data']['agent']);
-
-        return new Transaction($json_data['data']['transaction']);
+        return $json_data['data'];
     }
 
     public function installMount(string $mountSymbol) {
@@ -312,8 +307,7 @@ class Ship {
                     $fuelPrice = $market->getBuyPrice("FUEL");
                     // fuel now
                 }
-
-                echo("$this->id: Navigate could fuel at $$fuelPrice ($topup) " . $this->getFuelDescription() . "\n");
+//                echo("$this->id: Navigate could fuel at $$fuelPrice ($topup) " . $this->getFuelDescription() . "\n");
             }
         }
 
@@ -361,11 +355,26 @@ class Ship {
             if (in_array($item['symbol'], $goods)) {
                 continue;
             }
-            if (isset($this->limits[$item['symbol']])) {
-                $item['units'] = min($item['units'], $this->limits[$item['symbol']]);
+            $amount = $item['units'];
+            $good = $item['symbol'];
+            if (isset(MarketService::LIMITS[$good])) {
+                $limit =  MarketService::LIMITS[$good];
+                while ($amount > $limit) {
+                    // Sell the limit as many times as needed, reducing the amount each time.
+                    $amount -= $limit;
+                    $data = $this->sell([
+                        'symbol' => $good,
+                        'units' => $limit
+                    ]);
+                    $transactions[] = new Transaction($data['transaction']);
+                }
             }
-            $transaction = $this->sell($item);
-            $transactions[] = $transaction;
+            $data = $this->sell([
+                'units' => $amount,
+                'symbol' => $good
+            ]);
+            Agent::get()->updateFromData($data['agent']);
+            $transactions[] = new Transaction($data['transaction']);
         }
         return $transactions;
     }
@@ -456,7 +465,7 @@ class Ship {
             }
             $yield = $this->extractOres($data);
             $cooldown = $this->getCooldown();
-            echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . " takes $cooldown\n");
+//            echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . " takes $cooldown\n");
         }
         if ($this->getCargo()->getSpace() <= 5) {
             $before = $this->getCargo()->getUnits();

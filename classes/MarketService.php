@@ -5,6 +5,10 @@ class MarketService {
     private Agent $agent;
     /** @var Market[] */
     private array $markets;
+    const LIMITS = [
+        'REACTOR_FUSION_I' => 10,
+        'MOUNT_MINING_LASER_II' => 10,
+    ];
 
     public function __construct(\Agent $agent) {
         $this->agent = $agent;
@@ -94,8 +98,24 @@ class MarketService {
         return $bestMarket;
     }
 
-    public function purchase(Ship $ship, $good, $amount) {
+    /**
+     * @return Transaction[] all the transactions necessary to purchase this amount of good.
+     */
+    public function purchase(Ship $ship, $good, $amount): array {
+        $transactions = [];
         $ship->dock();
+        if (isset(MarketService::LIMITS[$good])) {
+            $limit =  MarketService::LIMITS[$good];
+            while ($amount > $limit) {
+                // Buy the limit as many times as needed, reducing the amount each time.
+                $amount -= $limit;
+                $data = $ship->purchase([
+                    'symbol' => $good,
+                    'units' => $limit
+                ]);
+                $transactions[] = new Transaction($data['transaction']);
+            }
+        }
         $data = $ship->purchase([
             'symbol' => $good,
             'units' => $amount
@@ -106,6 +126,7 @@ class MarketService {
 
         $this->agent->updateFromData($data['agent']);
 
-        return new Transaction($data['transaction']);
+        $transactions[] = new Transaction($data['transaction']);
+        return $transactions;
     }
 }

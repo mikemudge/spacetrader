@@ -177,10 +177,12 @@ class TradeRoute {
             }
         }
         if ($amount > 0) {
-            $transaction = $ship->sell([
+            $data = $ship->sell([
                 'symbol' => $this->good,
                 'units' => $amount
             ]);
+            Agent::get()->updateFromData($data['agent']);
+            $transaction = new Transaction($data['transaction']);
             $transaction->describe();
             $actualValue += $transaction->getTotal();
         }

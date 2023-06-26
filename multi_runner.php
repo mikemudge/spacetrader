@@ -86,7 +86,7 @@ while(true) {
                 // The ORBITAL_STATION for contracts, or the SHIPYARD for ship purchases?
 
                 // Do nothing for 100 seconds so we aren't continually checking up on this ship.
-                echo($ship->getId() . ": Not needed, cooling down for 100\n");
+//                echo($ship->getId() . ": Not needed, cooling down for 100\n");
                 $ship->setCooldown(100);
                 break;
             case Ship::COMMAND:
