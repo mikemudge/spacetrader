@@ -8,31 +8,17 @@ $agent->getSystemWaypoints();
 $reloadShipsTime = time();
 $asteroid = $agent->getAsteroids()[0];
 
-$noCommand = has_arg("--no_command");
 $surveyService = $agent->getSurveyService();
 $marketService = $agent->getMarketService();
+$miningService = $agent->getMiningService();
 $contractService = $agent->getContractService();
 $financeService = $agent->getFinanceService();
-// This will load all the ships initially.
-// TODO could be done offline through the save file?
-$agent->reloadShips();
 
-// Need the command ship so that we can transfer to it.
-// TODO could be the delivery ship, in case we replace it later with a fast/cargo ship.
-$commandShip = null;
-$ships = $agent->getShips();
-foreach($ships as $ship) {
-    if ($ship->getRole() == "COMMAND") {
-        $commandShip = $ship;
-        break;
-    }
-}
+// This chooses an appropriate ship for delivering contract goods.
+$contractService->registerShip();
 
 // TODO need a better way to reserve a ship for upgrades like additional mounts.
-$excludedShips = [];
 // TODO should keep track of ship income?
-$numShips = count($ships);
-echo("Automating " . count($ships) . " ships\n");
 
 // TODO we want actions/strategies.
 // Assign ships to different controllers.
@@ -49,14 +35,14 @@ while(true) {
         $reloadShipsTime = $now + 100;
     }
 
-    $ship = getNextAvailable($agent->getShips(), $excludedShips);
+    $ship = getNextAvailable($agent->getShips());
     $shipId = $ship->getId();
     $role = $ship->getRole();
     $cooldown = $ship->getCooldown();
 
     if ($cooldown > 0) {
-        if ($cooldown > 10) {
-            // Only log for sleeps of over 10 seconds
+        if ($cooldown > 20) {
+            // Only log for sleeps of over 20 seconds
             echo($ship->getId() . ": Waiting $cooldown to cooldown\n");
         }
         sleep($cooldown);
@@ -90,29 +76,21 @@ while(true) {
                 $ship->setCooldown(100);
                 break;
             case Ship::COMMAND:
-                if ($noCommand) {
-                    break;
-                }
+                // Check contract deliverables.
                 if ($contractService->deliverContract($ship)) {
                     break;
                 }
-
                 // TODO see if there is some trade route we could use to benefit this trip?
                 // We can ignore fuel as we need to spend that already, just get the highest value cargo to bring?
-                $ship->navigateTo($asteroid->getId());
-                if ($ship->getCooldown() > 0) {
-                    // If navigate did something, wait until arrival.
-                    break;
-                }
-                $contractGood = $contractService->getCurrentGood();
-                if ($contractGood && $surveyService->perform($ship, $contractGood)) {
-                    // You can't survey and mine in the same turn.
-                    break;
-                };
-
-                $ship->extractAndSell($contractGood, $surveyService);
+                $miningService->extractAndSell($ship);
                 break;
             case Ship::HAULER:
+                // Check contract deliverables.
+                if ($contractService->deliverContract($ship)) {
+                    break;
+                }
+                $ship->setCooldown(100);
+                break;
             case Ship::REFINERY:
                 // TODO handle what this ship does?
                 // If we have enough resource refine, otherwise collect from miners around it?
@@ -136,25 +114,7 @@ while(true) {
                 $ship->setCooldown(1000);
                 break;
             case Ship::EXCAVATOR:
-                // Should do nothing most of the time, as the ship should already be there.
-                $ship->navigateTo($asteroid->getId());
-                if ($ship->getCooldown() > 0) {
-                    // If navigate did something, wait until arrival.
-                    break;
-                }
-
-                $contractGood = $contractService->getCurrentGood();
-                if ($surveyService->perform($ship, $contractGood)) {
-                    // You can't survey and mine in the same turn.
-                    break;
-                };
-
-                // Transfer important goods to commandShip if possible.
-                if ($contractGood) {
-                    $ship->transferAll($contractGood, $commandShip);
-                }
-
-                $ship->extractAndSell($contractGood, $surveyService);
+                $miningService->extractAndSell($ship);
                 break;
             default:
                 throw new RuntimeException("Unknown ship role $role");
@@ -167,14 +127,10 @@ while(true) {
 }
 
 /** @var Ship[] $ships */
-function getNextAvailable(array $ships, array $excludedShips) {
+function getNextAvailable(array $ships) {
     $best = -1;
     $bestShip = null;
     foreach ($ships as $ship) {
-        if (in_array($ship->getId(), $excludedShips)) {
-            // Don't use this ship.
-            continue;
-        }
         $cooldown = $ship->getCooldown();
         if ($cooldown <= $best || $best === -1) {
             $best = $cooldown;

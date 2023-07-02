@@ -4,6 +4,7 @@ class ContractService {
 
     private Agent $agent;
     private string $contractLocation;
+    private Ship $contractShip;
 
     public function __construct(Agent $agent) {
         $this->agent = $agent;
@@ -11,6 +12,10 @@ class ContractService {
     }
 
     public function deliverContract(Ship $ship) {
+        if ($ship !== $this->contractShip) {
+            // We don't use any ships unless they are designated as the contract ship.
+            return false;
+        }
         $goal = $this->getCurrentContract();
         if (!$goal) {
             // Can't do anything if there isn't a contract to deliver.
@@ -21,6 +26,7 @@ class ContractService {
         // Check how much the ship currently has of it.
         $howMuch = $ship->getCargo()->getAmountOf($contractGood);
 
+        $miningRequired = false;
         if (!in_array($contractGood, SurveyService::MINABLE)) {
             // Lose your cargo to maximize carry ability.
             $ship->sellAllExcept($contractGood);
@@ -30,6 +36,8 @@ class ContractService {
                     return true;
                 }
             }
+        } else {
+            $miningRequired = true;
         }
 
         // If we are close to capacity, then we should deliver it.
@@ -51,6 +59,14 @@ class ContractService {
             // While this doesn't technically consume the turn, we want the next turn to check the contract again.
             // Otherwise the ship will navigate to an asteroid field to start mining.
             return true;
+        }
+
+        if ($miningRequired) {
+            // This ship will need to be at the asteroid to support transferring goods to it.
+            $ship->navigateTo($this->agent->getAsteroids()[0]->getId());
+            if ($ship->getCooldown() > 0) {
+                return true;
+            };
         }
         return false;
     }
@@ -172,6 +188,55 @@ class ContractService {
         /** @var Transaction $t */
         foreach($transactions as $t) {
             echo($ship->getId() . ": " . $t->getDescription() . "\n");
+        }
+    }
+
+    public function transferGoods(Ship $ship) {
+        $contractGood = $this->getCurrentGood();
+        // TODO needs to know what ship is being used to deliver goods?
+        if (!$contractGood) {
+            // Don't transfer when there is no particular contract good.
+            return;
+        }
+        $amount = $ship->getCargo()->getAmountOf($contractGood);
+        if ($ship->getCargo()->getSpace() > 15) {
+            // Don't transfer if you have lots of space.
+            return;
+        }
+        if ($amount == 0) {
+            return;
+        }
+
+        if ($ship->getLocation() != $this->contractShip->getLocation()) {
+            echo($ship->getId() . ": Need to transfer $amount $contractGood, but " . $this->contractShip->getId() . " isn't around\n");
+            $ship->setCooldown(10);
+            return;
+        }
+
+        if ($this->contractShip->getCargo()->getSpace() == 0) {
+            echo($ship->getId() . ": Need to transfer $contractGood, but no space available in " . $this->contractShip->getId() . "\n");
+            $ship->setCooldown(10);
+            return;
+        }
+        // If the ship has less space, just transfer as much as we can.
+        $amount = min($amount, $this->contractShip->getCargo()->getSpace());
+        if ($this->contractShip->getStatus() == "IN_ORBIT") {
+            $ship->orbit();
+            $ship->transfer($this->contractShip, $contractGood, $amount);
+            echo($ship->getId() . " transferred $amount $contractGood to " . $this->contractShip->getId(). "\n");
+        }
+    }
+
+    public function registerShip() {
+        // Need the command ship so that we can transfer to it.
+        // TODO could be the delivery ship, in case we replace it later with a fast/cargo ship.
+        $commandShips = $this->agent->getShipsWithRole("COMMAND");
+        $this->contractShip = $commandShips[0];
+        $haulers = $this->agent->getShipsWithRole("HAULER");
+        // If there are haulers use the first of them instead.
+        foreach($haulers as $hauler) {
+            $this->contractShip = $hauler;
+            break;
         }
     }
 }

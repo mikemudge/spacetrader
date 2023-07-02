@@ -12,6 +12,7 @@ class Waypoint {
     public const PLANET = "PLANET";
 
     private static array $cachedWaypoints;
+    private array $data;
     private string $id;
     private string $systemSymbol;
     private array $orbitals;
@@ -25,7 +26,7 @@ class Waypoint {
     private function __construct(string $waypoint) {
         $this->id = $waypoint;
         // Remove the last part to get just the system id.
-        $this->systemSymbol = substr($this->id, 0, strripos($this->id, "-"));
+        $this->systemSymbol = self::toSystemSymbol($this->id);
     }
 
     /**
@@ -54,6 +55,7 @@ class Waypoint {
         $this->type = $data['type'];
         $this->x = intval($data['x']);
         $this->y = intval($data['y']);
+        $this->data = $data;
     }
 
     private static function loadMany($data) {
@@ -99,6 +101,12 @@ class Waypoint {
         return $json_data['data'];
     }
 
+    public function getJumpGate() {
+        $url = "https://api.spacetraders.io/v2/systems/$this->systemSymbol/waypoints/$this->id/jump-gate";
+        $json_data = get_api($url);
+        return $json_data['data'];
+    }
+
     public function getId() {
         return $this->id;
     }
@@ -130,6 +138,10 @@ class Waypoint {
 
     public function getSystemSymbol() {
         return $this->systemSymbol;
+    }
+
+    public static function toSystemSymbol($id) {
+        return substr($id, 0, strripos($id, "-"));
     }
 
     public function getDistance(Waypoint $other) {

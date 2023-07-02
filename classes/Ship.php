@@ -27,7 +27,7 @@ class Ship {
     private $faction;
     private $role;
     private $fuel;
-    private Waypoint $location;
+    private string $location;
     private $lastActionTime;
     private $status = null;
     private $crew;
@@ -98,7 +98,7 @@ class Ship {
     }
 
     public function getLocation(): string {
-        return $this->location->getId();
+        return $this->location;
     }
 
     public function getCargoDescription(): string {
@@ -144,7 +144,7 @@ class Ship {
             // Only update this if we don't already have a cooldown.
             $this->nextActionTime = strtotime($data['nav']['route']['arrival']);
         }
-        $this->location = Waypoint::loadById($data['nav']['waypointSymbol']);
+        $this->location = $data['nav']['waypointSymbol'];
     }
 
     // dock or orbit etc.
@@ -176,7 +176,7 @@ class Ship {
         } catch (CooldownException $e) {
             // Update this ships next action time.
             // TODO next extract and next action are separate?
-            $this->setCooldown($e->getCooldown()['remainingSeconds']);
+            $this->setCooldown($e->getCooldown());
             throw $e;
         }
     }
@@ -269,7 +269,7 @@ class Ship {
         } catch (CooldownException $e) {
             // Update this ships next action time.
             // TODO next extract and next action are separate?
-            $this->setCooldown($e->getCooldown()['remainingSeconds']);
+            $this->setCooldown($e->getCooldown());
             throw $e;
         }
     }
@@ -283,12 +283,80 @@ class Ship {
         return max($c, 0);
     }
 
+    /**
+    {
+    "data": {
+    "nav": {
+    "systemSymbol": "X1-DD46",
+    "waypointSymbol": "X1-DD46-05015B",
+    "route": {
+    "departure": {
+    "symbol": "X1-YU85-14659B",
+    "type": "JUMP_GATE",
+    "systemSymbol": "X1-YU85",
+    "x": -41,
+    "y": 54
+    },
+    "destination": {
+    "symbol": "X1-DD46-05015B",
+    "type": "JUMP_GATE",
+    "systemSymbol": "X1-DD46",
+    "x": 76,
+    "y": 15
+    },
+    "arrival": "2023-06-28T10:48:56.633Z",
+    "departureTime": "2023-06-28T10:48:56.633Z"
+    },
+    "status": "IN_ORBIT",
+    "flightMode": "CRUISE"
+    },
+    "cooldown": {
+    "shipSymbol": "MUDGE-1",
+    "totalSeconds": 60,
+    "remainingSeconds": 59,
+    "expiration": "2023-06-28T10:49:56.631Z"
+    }
+    }
+    }
+     */
+    public function jump(string $system) {
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/jump";
+        $json_data = post_api($url, ["systemSymbol" => $system]);
+        $data = $json_data['data'];
+
+        $time = $data['cooldown']['remainingSeconds'];
+        $this->setCooldown($time);
+
+        // TODO nav update?
+        $this->status = $data['nav']['status'];
+        $this->nextActionTime = strtotime($data['nav']['route']['arrival']);
+        $waypointSymbol = $data['nav']['waypointSymbol'];
+        $this->location = $waypointSymbol;
+
+        $from = $data['nav']['route']['departure']['symbol'];
+        echo("$this->id: Jumping $from to $waypointSymbol, will take $time seconds\n");
+
+        // cooldown and nav response.
+        return $json_data['data'];
+    }
+
+    /** Requires a "Warp Drive" to use this */
+    public function warp(string $waypointSymbol) {
+        $url = "https://api.spacetraders.io/v2/my/ships/$this->id/warp";
+        $json_data = post_api($url, ["waypointSymbol" => $waypointSymbol]);
+        display_json($json_data);
+        // fuel and nav response.
+        return $json_data['data'];
+    }
+
     public function navigateTo($destinationSymbol) {
-        if ($destinationSymbol == $this->location->getId()) {
+        if ($destinationSymbol == $this->location) {
 //            echo("Already at $destinationSymbol, not navigating\n");
             return;
         }
-        $distance = $this->location->getDistance(Waypoint::loadById($destinationSymbol));
+        // TODO better distances?
+        $shipWaypoint = Waypoint::loadById($this->location);
+        $distance = $shipWaypoint->getDistance(Waypoint::loadById($destinationSymbol));
         if ($this->fuel['capacity'] > 0) {
             $expectedFuel = $this->getFuelForDistance($distance);
             $expectedTime = $this->getTimeForDistance($distance);
@@ -302,7 +370,7 @@ class Ship {
                 // TODO We can get to our destination, but should we fuel now or later?
                 $topup = $this->fuel['capacity'] - $this->fuel['current'];
                 $fuelPrice = 0;
-                $market = $this->location->getMarket();
+                $market = $shipWaypoint->getMarket();
                 if ($market) {
                     $fuelPrice = $market->getBuyPrice("FUEL");
                     // fuel now
@@ -321,7 +389,7 @@ class Ship {
         $this->fuel = $data['fuel'];
         $this->status = $data['nav']['status'];
         $this->nextActionTime = strtotime($data['nav']['route']['arrival']);
-        $this->location = Waypoint::loadById($data['nav']['waypointSymbol']);
+        $this->location = $data['nav']['waypointSymbol'];
 
         $time = $this->getCooldown();
         $expectedTime = $this->getTimeForDistance($distance);
@@ -450,77 +518,6 @@ class Ship {
         $goodsProfit = $this->getCargo()->getCapacity() * $route->getValue();
         $totalTime = $this->getTimeForDistance($distance) * 2;
         return ($goodsProfit - $fuelCost); // * 60 / $totalTime;
-    }
-
-    public function extractAndSell($hoardGood, SurveyService $surveyService) {
-        // Only extract if we have some space (Selling should keep space available).
-        if ($this->getCargo()->getSpace() > 0) {
-            $this->orbit();
-            $survey = $surveyService->getSurvey($this, $hoardGood);
-            $data = null;
-            if ($survey) {
-                $chance = number_format($survey->getChance($hoardGood) * 100);
-                $data = $survey->getData();
-//                echo("$this->id: Using survey with " . $chance . "% chance of $hoardGood\n");
-            }
-            $yield = $this->extractOres($data);
-            $cooldown = $this->getCooldown();
-//            echo("$this->id: Mining " . $yield['units'] . " " . $yield['symbol'] . " takes $cooldown\n");
-        }
-        if ($this->getCargo()->getSpace() <= 5) {
-            $before = $this->getCargo()->getUnits();
-            $totalPrice = 0;
-            $transactions = $this->sellAllExcept($hoardGood);
-            foreach ($transactions as $transaction) {
-                $totalPrice += $transaction->getTotal();
-            }
-
-            if ($totalPrice > 0) {
-                $soldUnits = $before - $this->getCargo()->getUnits();
-                echo("$this->id: Sold $soldUnits cargo for $$totalPrice\n");
-            } else {
-                // Its not expected that this happens, log more info to help debug it.
-                $this->printCargo();
-                throw new RuntimeException("$this->id: Sold nothing in extractAndSell");
-            }
-        }
-    }
-
-    public function matchStatus(Ship $ship): bool {
-        if ($ship->getStatus() == "DOCKED") {
-            $this->dock();
-            return true;
-        } else if ($ship->getStatus() == "IN_ORBIT") {
-            $this->orbit();
-            return true;
-        }
-        // IN_TRANSIT isn't practical to match
-        return false;
-    }
-
-    public function transferAll($hoardGood, Ship $ship) {
-        $amount = $this->getCargo()->getAmountOf($hoardGood);
-        if ($amount == 0) {
-            return;
-        }
-
-        if ($this->getLocation() != $ship->getLocation()) {
-            echo("$this->id: Need to transfer $amount $hoardGood, but " . $ship->getId() . " isn't around\n");
-            $this->setCooldown(10);
-        } else {
-            // If the ship has less space, just transfer as much as we can.
-            $amount = min($amount, $ship->getCargo()->getSpace());
-            if ($ship->getCargo()->getSpace() == 0) {
-                echo("$this->id: Need to transfer $hoardGood, but no space available in " . $ship->getId() . "\n");
-                $this->setCooldown(10);
-            }
-            if ($amount > 0) {
-                if ($this->matchStatus($ship)) {
-                    $this->transfer($ship, $hoardGood, $amount);
-                    echo("$this->id transfered $amount $hoardGood to $ship->id\n");
-                }
-            }
-        }
     }
 
     public function negotiateContract() {

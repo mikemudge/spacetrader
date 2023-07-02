@@ -5,6 +5,7 @@ class Agent {
     private static Agent $agent;
 
     private MarketService $marketService;
+    private MiningService $miningService;
     private ContractService $contractService;
     private FinanceService $financeService;
     private SurveyService $surveyService;
@@ -23,6 +24,7 @@ class Agent {
     private function __construct($data) {
         $this->updateFromData($data);
         $this->marketService = new MarketService($this);
+        $this->miningService = new MiningService($this);
         $this->contractService = new ContractService($this);
         $this->financeService = new FinanceService($this);
         $this->surveyService = new SurveyService($this);
@@ -33,6 +35,14 @@ class Agent {
         $json_data = get_api("https://api.spacetraders.io/v2/my/agent");
         $agent = new Agent($json_data['data']);
         $agent->loadAllData();
+        Agent::$agent = $agent;
+        return $agent;
+    }
+
+    /** Skip loadAllData which can be slow, but useful for avoiding API calls */
+    public static function noLoad() {
+        $json_data = get_api("https://api.spacetraders.io/v2/my/agent");
+        $agent = new Agent($json_data['data']);
         Agent::$agent = $agent;
         return $agent;
     }
@@ -73,7 +83,7 @@ class Agent {
     /** @return Contract[] */
     public function getContracts(): array {
         if (!$this->contracts) {
-            $json_data = get_api("https://api.spacetraders.io/v2/my/contracts");
+            $json_data = get_api("https://api.spacetraders.io/v2/my/contracts?limit=20&page=2");
             foreach ($json_data['data'] as $data) {
                 $this->contracts[] = Contract::create($data);
             }
@@ -132,6 +142,12 @@ class Agent {
 
     public function getDescription() {
         return "$this->id $this->faction \$" . number_format($this->credits) . " @ $this->headQuarters";
+    }
+
+    public function getSystem(string $systemSymbol) {
+        $url = "https://api.spacetraders.io/v2/systems/$systemSymbol";
+        $json_data = get_api($url);
+        return new System($json_data['data']);
     }
 
     /** Lazily load the waypoints for this system
@@ -230,6 +246,10 @@ class Agent {
 
     public function getMarketService(): MarketService {
         return $this->marketService;
+    }
+
+    public function getMiningService(): MiningService {
+        return $this->miningService;
     }
 
     public function getContractService(): ContractService {

@@ -1,14 +1,14 @@
 <?php
 
 class CooldownException extends Exception {
-    private $cooldown;
+    private int $cooldown;
 
-    public function __construct($message, $cooldown) {
+    public function __construct($message, int $cooldown) {
         parent::__construct($message);
         $this->cooldown = $cooldown;
     }
 
-    public function getCooldown() {
+    public function getCooldown(): int {
         return $this->cooldown;
     }
 }

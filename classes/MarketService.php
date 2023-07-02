@@ -8,8 +8,26 @@ class MarketService {
     const LIMITS = [
         'REACTOR_FUSION_I' => 10,
         'MOUNT_MINING_LASER_II' => 10,
+        'MODULE_ORE_REFINERY_I' => 10,
+        // 100's
+        'MOUNT_MINING_LASER_I' => 100,
+        'FABRICS' => 100,
+        'ELECTRONICS' => 100,
+        'DRUGS' => 100,
+        'REACTOR_SOLAR_I' => 100,
+        'FOOD' => 100,
     ];
-
+/**
+"error": {
+"message": "Market transaction failed. Trade good REACTOR_SOLAR_I has a limit of 100 units per transaction.",
+"code": 4604,
+"data": {
+"waypointSymbol": "X1-YU85-34607X",
+"tradeSymbol": "REACTOR_SOLAR_I",
+"units": 116,
+"tradeVolume": 100
+}
+}*/
     public function __construct(\Agent $agent) {
         $this->agent = $agent;
         $this->markets = [];

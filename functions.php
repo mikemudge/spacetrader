@@ -91,6 +91,15 @@ function get_api($url) {
     return $json_data;
 }
 
+/**
+{
+"error": {
+"message": "SpaceTraders is currently in maintenance mode and unavailable. This will hopefully only last a few minutes while we update or upgrade our servers. Check discord for updates https:\/\/discord.com\/invite\/jh6zurdWk5 and consider donating to keep the servers running https:\/\/donate.stripe.com\/28o29m5vxcri6OccMM",
+"code": 503
+}
+}
+ */
+
 function post_api($url, $data = null) {
     $ch = curl_init($url);
     if (has_arg("--debug_api")) {
@@ -114,14 +123,20 @@ function post_api($url, $data = null) {
     $server_output = curl_exec($ch);
     curl_close($ch);
 
-    $json_data = json_decode($server_output, true, 512, JSON_THROW_ON_ERROR);
+    try {
+        $json_data = json_decode($server_output, true, 512, JSON_THROW_ON_ERROR);
+    } catch (JsonException $e) {
+        // A rate limit error doesn't always return json?
+        // Return a 5 second cooldown so it can be retried later.
+        throw new CooldownException($e->getMessage() . " from response: $server_output", 5);
+    }
     // If debug is requested or an error occurs log the response.
     if (isset($json_data['error'])) {
         $message = $json_data['error']['message'];
         $code = $json_data['error']['code'] ?? 0;
         if (isset($json_data['error']['data']['cooldown'])) {
             $cooldown = $json_data['error']['data']['cooldown'];
-            throw new CooldownException($message, $cooldown);
+            throw new CooldownException($message, $cooldown['remainingSeconds']);
         }
         if ($code == 4214) {
             $time = $json_data['error']['data']['secondsToArrival'];

@@ -2,8 +2,12 @@
 include_once "classes/autoload.php";
 include_once "functions.php";
 
-$agent = Agent::load();
 $type = $argv[1];
+if (!$type) {
+    echo("Usage: " . $argv[0] . " <ship type>\n");
+    exit;
+}
+$agent = Agent::load();
 $shipyards = $agent->getSystemShipyards();
 
 if (count($shipyards) > 1) {
